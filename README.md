@@ -26,54 +26,44 @@ Pustaka ini dirancang untuk memproses audio multi-channel dengan latensi ultra-r
 
 ---
 
-## Arsitektur Pemrosesan Paralel Dual-Core
+## Arsitektur Pemrosesan Paralel Dual-Core (Fork-Join Pipeline)
 
-RAD_DSP_LIB dirancang untuk memaksimalkan performa komputasi mikrokontroler dual-core **ESP32** dengan membagi beban kerja secara paralel. Rantai pemrosesan audio dibagi menjadi dua jenis tugas menggunakan arsitektur **Fork-Join** berbasis *Ping-Pong Buffer Pipeline*:
+RAD_DSP_LIB dirancang untuk memaksimalkan performa komputasi mikrokontroler dual-core **ESP32** dengan membagi beban kerja secara paralel. Aliran data audio dibagi menjadi dua tahap pemrosesan menggunakan arsitektur **Fork-Join** berbasis *Ping-Pong Buffer Pipeline*:
 
 ```mermaid
 graph TD
     subgraph Core1 ["Core 1 (Utama)"]
-        A[ADC / I2S Input] --> B[Input EQ L/R]
-        C[Bluetooth Audio ASRC] --> D[Mixer L/R]
-        B --> D
-        D --> E[Master EQ L/R]
-        E --> F[Salin ke nextPipe]
+        A[ADC / I2S Input] --> B[Pemrosesan Tahap 1 / Blok Input]
+        B --> C[Salin ke nextPipe]
     end
     
     subgraph Core0 ["Core 0 (Helper)"]
-        G[Baca dari pipe] --> H[FIR Convolution L/R]
-        H --> I[Master Limiter L/R]
-        I --> J[Matrix Router Output]
-        J --> K[Salin ke outPipe]
+        D[Baca dari pipe] --> E[Pemrosesan Tahap 2 / Blok Output]
+        E --> F[Salin ke outPipe]
     end
     
-    F -. DualCore Sync .-> G
-    K --> L[DAC / I2S Output]
+    C -. DualCore Sync .-> D
+    F --> G[DAC / I2S Output]
 ```
 
 ### 1. Core 1 (Utama / Main Processor)
-Core 1 bertanggung jawab atas penanganan I/O real-time, kontrol eksternal, dan bagian awal dari rantai pemrosesan audio (Blok Input):
-* **Tugas:**
-  1. Melakukan polling telemetry dan menerima perintah UART dari RadStudio GUI (`dspControl.poll()`).
-  2. Membaca data ADC dari buffer DMA I2S fisik (`i2s0.readBlock()`).
-  3. Membaca data audio Bluetooth A2DP Sink dan menjalankan *ASRC Hermite Resampling* secara real-time.
-  4. Memproses modul EQ awal (`Biquad`) dan dinamika input (`Dynamics` Compressor).
-  5. Mencampur sinyal I2S dan Bluetooth menggunakan modul `Mixer`.
-  6. Menyalin hasil akhir pemrosesan ke pipeline buffer perantara (`nextPipeL`/`nextPipeR`) untuk diteruskan ke Core 0.
+Core 1 bertanggung jawab atas penanganan I/O real-time (baca input hardware), manajemen kontrol eksternal, dan kalkulasi pemrosesan tahap awal (Blok Input):
+* **Alur Tugas:**
+  1. Membaca blok sampel audio terbaru dari perangkat input fisik (ADC/I2S).
+  2. Melakukan kalkulasi pemrosesan audio tahap awal (Task A).
+  3. Menyalin hasil kalkulasi ke buffer perantara (`nextPipe`) untuk dikirim ke Core 0.
 
-### 2. Core 0 (Helper / Co-Processor)
-Core 0 dialokasikan khusus untuk menangani proses komputasi yang berat dan berlatensi konstan, berjalan secara paralel dengan proses I/O pada Core 1:
-* **Tugas:**
-  1. Mengambil data audio dari siklus sebelumnya yang tersimpan di buffer `pipeL`/`pipeR`.
-  2. Melakukan konvolusi filter konvolusi FIR (`FIR` filter) untuk room-correction atau kabinet gitar IR.
-  3. Memproses pengaman sinyal akhir menggunakan `Dynamics` Master Limiter.
-  4. Merutekan hasil pencampuran akhir menggunakan `MatrixRouter` ke output bus masing-masing.
-  5. Menuliskan data keluaran akhir (`outPipeL`/`outPipeR`) kembali ke buffer DMA DAC I2S0/I2S1.
+### 2. Core 0 (Co-Processor / Helper)
+Core 0 dialokasikan khusus untuk menangani kalkulasi matematika intensif secara asinkron dan terpisah dari aktivitas I/O Core 1:
+* **Alur Tugas:**
+  1. Membaca data buffer hasil kalkulasi Core 1 pada siklus sebelumnya (`pipe`).
+  2. Melakukan kalkulasi pemrosesan audio tahap akhir (Task B).
+  3. Menyalin hasil kalkulasi akhir ke buffer keluaran (`outPipe`) untuk dituliskan ke DAC/I2S.
 
 ### 3. Sinkronisasi Ping-Pong Buffer
-* Untuk menghindari *race condition* (tabrakan memori di mana satu core menulis ke buffer yang sedang dibaca core lain), pustaka ini menggunakan metode **Ping-Pong Pipeline**.
-* Pada siklus waktu $t$, Core 1 memproses sampel blok audio baru ($N$) dari ADC, sedangkan Core 0 secara simultan memproses sampel blok audio sebelumnya ($N-1$) yang sudah selesai dihitung oleh Core 1 pada siklus sebelumnya.
-* Sinkronisasi diatur secara ketat menggunakan *FreeRTOS Binary Semaphore* berprioritas tinggi melalui kelas `dualCore.process()`. Setelah kedua core menyelesaikan tugasnya, pointer ditukar, menghasilkan latensi tambahan yang sangat minimal ($\approx 2.67\text{ ms}$ pada buffer 128 sampel @ 48 kHz).
+* Untuk menghindari *race condition* (di mana satu core menulis ke buffer yang sedang dibaca core lain), pustaka menggunakan metode **Ping-Pong Pipeline**.
+* Pada siklus waktu $t$, Core 1 memproses sampel blok audio baru ($N$), sedangkan Core 0 secara simultan memproses hasil kalkulasi Core 1 dari blok sampel sebelumnya ($N-1$).
+* Koordinasi fork-join antar core diatur menggunakan *FreeRTOS Binary Semaphore* berprioritas tinggi melalui pemanggilan kelas `dualCore.process()`. Setelah kedua core menyelesaikan tugasnya pada siklus berjalan, buffer ditukar secara atomik.
 
 ---
 
