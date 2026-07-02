@@ -567,12 +567,10 @@ RadDSP::Bluetooth bt;
 // Instansiasi objek Controller untuk komunikasi telemetry & kontrol RadStudio GUI via UART
 RadDSP::Controller dspControl;
 
-// Skema perutean sederhana (telemetri visual) untuk ditampilkan pada RadStudio GUI
-// Di sini kita mendefinisikan rute langsung: I2S0_In -> I2S0_Out dan BT_In -> I2S0_Out
-const char* dspSchema = "{\"routing\":["
-  "[\"I2S0_In\",\"I2S0_Out\"],"
-  "[\"BT_In\",\"I2S0_Out\"]"
-"],\"modules\":{}}"; // modules dikosongkan karena kita tidak menggunakan modul efek apa pun
+// @Route: I2S_In -> I2S0_Out
+// @Route: BT_In -> I2S0_Out
+
+#include "dsp_schema.h"
 
 // Fungsi callback audio loop yang akan dieksekusi terus-menerus di Core 1
 void audioLoop() {
@@ -663,31 +661,14 @@ RadDSP::Dynamics limiterL, limiterR;           // ID 9 & 10
 RadDSP::FIR firL, firR;                        // ID 11 & 12
 RadDSP::MatrixRouter<3, 2> routerL, routerR;   // ID 13 & 14
 
-// Skema JSON Telemetry untuk dibaca RadStudio GUI (Menggunakan Visual Cabang Stereo dari Input Tunggal)
-const char* dspSchema = "{\"routing\":["
-  "[\"I2S_In\",\"eqInputL\"],[\"I2S_In\",\"eqInputR\"],"
-  "[\"eqInputL\",\"compressorL\"],[\"compressorL\",\"mixerL\"],"
-  "[\"eqInputR\",\"compressorR\"],[\"compressorR\",\"mixerR\"],"
-  "[\"BT_In\",\"mixerL\"],[\"BT_In\",\"mixerR\"],"
-  "[\"mixerL\",\"eqMasterL\"],[\"eqMasterL\",\"firL\"],[\"firL\",\"limiterL\"],[\"limiterL\",\"routerL\"],"
-  "[\"mixerR\",\"eqMasterR\"],[\"eqMasterR\",\"firR\"],[\"firR\",\"limiterR\"],[\"limiterR\",\"routerR\"],"
-  "[\"routerL\",\"I2S0_Out\"],[\"routerR\",\"I2S0_Out\"]"
-"],\"modules\":{"
-  "\"1\":{\"name\":\"eqInputL\",\"type\":\"Biquad\",\"params\":[\"0: Filter Type\",\"1: Frequency (Hz)\",\"2: Gain (dB)\",\"3: Q-Factor\",\"100: Bypass (0/1)\"]},"
-  "\"2\":{\"name\":\"eqInputR\",\"type\":\"Biquad\",\"params\":[\"0: Filter Type\",\"1: Frequency (Hz)\",\"2: Gain (dB)\",\"3: Q-Factor\",\"100: Bypass (0/1)\"]},"
-  "\"3\":{\"name\":\"compressorL\",\"type\":\"Dynamics\",\"params\":[\"0: Dynamics Type\",\"1: Threshold (dB)\",\"2: Ratio\",\"3: Attack (ms)\",\"4: Hold (ms)\",\"5: Release (ms)\",\"6: Makeup Gain (dB)\",\"7: SC Filter Type\",\"8: SC Freq (Hz)\",\"100: Bypass (0/1)\"]},"
-  "\"4\":{\"name\":\"compressorR\",\"type\":\"Dynamics\",\"params\":[\"0: Dynamics Type\",\"1: Threshold (dB)\",\"2: Ratio\",\"3: Attack (ms)\",\"4: Hold (ms)\",\"5: Release (ms)\",\"6: Makeup Gain (dB)\",\"7: SC Filter Type\",\"8: SC Freq (Hz)\",\"100: Bypass (0/1)\"]},"
-  "\"5\":{\"name\":\"mixerL\",\"type\":\"Mixer\",\"params\":[\"0: Gain I2S (dB)\",\"1: Gain BT (dB)\",\"100: Mute I2S (0/1)\",\"101: Mute BT (0/1)\"]},"
-  "\"6\":{\"name\":\"mixerR\",\"type\":\"Mixer\",\"params\":[\"0: Gain I2S (dB)\",\"1: Gain BT (dB)\",\"100: Mute I2S (0/1)\",\"101: Mute BT (0/1)\"]},"
-  "\"7\":{\"name\":\"eqMasterL\",\"type\":\"Biquad\",\"params\":[\"0: Filter Type\",\"1: Frequency (Hz)\",\"2: Gain (dB)\",\"3: Q-Factor\",\"100: Bypass (0/1)\"]},"
-  "\"8\":{\"name\":\"eqMasterR\",\"type\":\"Biquad\",\"params\":[\"0: Filter Type\",\"1: Frequency (Hz)\",\"2: Gain (dB)\",\"3: Q-Factor\",\"100: Bypass (0/1)\"]},"
-  "\"9\":{\"name\":\"limiterL\",\"type\":\"Dynamics\",\"params\":[\"0: Dynamics Type\",\"1: Threshold (dB)\",\"2: Ratio\",\"3: Attack (ms)\",\"4: Hold (ms)\",\"5: Release (ms)\",\"6: Makeup Gain (dB)\",\"7: SC Filter Type\",\"8: SC Freq (Hz)\",\"100: Bypass (0/1)\"]},"
-  "\"10\":{\"name\":\"limiterR\",\"type\":\"Dynamics\",\"params\":[\"0: Dynamics Type\",\"1: Threshold (dB)\",\"2: Ratio\",\"3: Attack (ms)\",\"4: Hold (ms)\",\"5: Release (ms)\",\"6: Makeup Gain (dB)\",\"7: SC Filter Type\",\"8: SC Freq (Hz)\",\"100: Bypass (0/1)\"]},"
-  "\"11\":{\"name\":\"firL\",\"type\":\"FIR\",\"params\":[\"4: Gain (dB)\",\"100: Bypass (0/1)\"]},"
-  "\"12\":{\"name\":\"firR\",\"type\":\"FIR\",\"params\":[\"4: Gain (dB)\",\"100: Bypass (0/1)\"]},"
-  "\"13\":{\"name\":\"routerL\",\"type\":\"MatrixRouter<3,2>\",\"params\":[\"0: In0->Out0 (Lin)\",\"1: In0->Out1 (Lin)\",\"2: In1->Out0 (Lin)\",\"3: In1->Out1 (Lin)\",\"4: In2->Out0 (Lin)\",\"5: In2->Out1 (Lin)\"]},"
-  "\"14\":{\"name\":\"routerR\",\"type\":\"MatrixRouter<3,2>\",\"params\":[\"0: In0->Out0 (Lin)\",\"1: In0->Out1 (Lin)\",\"2: In1->Out0 (Lin)\",\"3: In1->Out1 (Lin)\",\"4: In2->Out0 (Lin)\",\"5: In2->Out1 (Lin)\"]}"
-"}}";
+// @Route: I2S_In -> eqInputL -> compressorL -> mixerL -> eqMasterL -> firL -> limiterL -> routerL -> I2S0_Out
+// @Route: I2S_In -> eqInputR -> compressorR -> mixerR -> eqMasterR -> firR -> limiterR -> routerR -> I2S0_Out
+// @Route: BT_In -> mixerL
+// @Route: BT_In -> mixerR
+// @Route: routerL -> I2S1_Out
+// @Route: routerR -> I2S1_Out
+
+#include "dsp_schema.h"
 
 // Buffer Ping-Pong Pipeline untuk transfer antar core
 float pipeL[128], pipeR[128];
