@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoFIR EQ Normalizer & Smaart Export (Complex Phase)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        }
+        h2 {
+            text-align: center;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 10px;
+        }
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .file-upload-group {
+            grid-column: span 4;
+            background-color: #383838;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px dashed #666;
+        }
+        label {
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #cccccc;
+            font-weight: bold;
+        }
+        input[type="number"], input[type="text"], select {
+            padding: 8px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background-color: #3d3d3d;
+            color: #fff;
+            font-size: 14px;
+        }
+        input[type="file"] {
+            padding: 4px;
+            background-color: transparent;
+            border: none;
+            color: #fff;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            height: 35px;
+            background-color: #3d3d3d;
+            padding: 0 10px;
+            border-radius: 4px;
+            border: 1px solid #444;
+        }
+        
+        .visibility-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            background-color: #1a1a1a;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            margin-bottom: 15px;
+            justify-content: center;
+        }
+        .vis-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .vis-toggle input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #007acc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #005f9e; }
+        .btn-download { background-color: #28a745; }
+        .btn-download:hover { background-color: #218838; }
+        
+        .chart-container {
+            width: 100%;
+            height: 550px;
+            background-color: #111; 
+            border-radius: 4px;
+            padding: 10px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+            position: relative;
+            border: 1px solid #333;
+        }
+        .output-group { margin-top: 20px; }
+        textarea {
+            width: 100%;
+            height: 100px;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        .helper-text { font-size: 12px; color: #999; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>AutoFIR EQ Normalizer & Smaart Export (Complex Phase)</h2>
+    
+    <div class="control-grid">
+        <div class="input-group file-upload-group">
+            <label for="irUpload">Import Data Smaart / Pengukuran (.txt, .csv, .wav)</label>
+            <input type="file" id="irUpload" accept=".wav,.txt,.csv,.ascii" onchange="handleFileUpload(event)">
+            <div class="helper-text">Garis Kuning (Speaker Asli) akan digunakan untuk men-generate Counter EQ FIR (Biru).</div>
+        </div>
+
+        <div class="input-group">
+            <label for="sampleRate">Sample Rate (Hz)</label>
+            <input type="number" id="sampleRate" value="48000" min="1000">
+        </div>
+        <div class="input-group">
+            <label for="taps">Jumlah Taps (64 - 1024)</label>
+            <input type="number" id="taps" value="256" min="64" max="1024">
+        </div>
+        <div class="input-group">
+            <label for="minFreq">Batas Koreksi Bawah (Hz)</label>
+            <input type="number" id="minFreq" value="60" min="1">
+        </div>
+        <div class="input-group">
+            <label for="maxFreq">Batas Koreksi Atas (Hz)</label>
+            <input type="number" id="maxFreq" value="16000" min="1">
+        </div>
+        
+        <div class="input-group">
+            <label for="minGain">DSP Limit Cut (dB)</label>
+            <input type="number" id="minGain" value="-12">
+        </div>
+        <div class="input-group">
+            <label for="maxGain">DSP Limit Boost (dB)</label>
+            <input type="number" id="maxGain" value="6">
+        </div>
+        <div class="input-group">
+            <label for="smoothing">Fractional Smoothing</label>
+            <select id="smoothing">
+                <option value="0">Off (Raw)</option>
+                <option value="48" selected>1/48 Octave</option>
+                <option value="24">1/24 Octave</option>
+                <option value="12">1/12 Octave</option>
+                <option value="3">1/3 Octave</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <label>Coherent Weighting</label>
+            <div class="checkbox-group">
+                <input type="checkbox" id="cohWeighting" checked>
+                <span style="font-size: 13px; color:#ccc;">Penahan EQ & Phase Dinamis</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="btn-group">
+        <button onclick="calculateFIR()">Generate Counter FIR (Normalizer)</button>
+        <button class="btn-download" onclick="downloadSmaartTXT()">Download TXT Smaart</button>
+    </div>
+
+    <div class="visibility-panel">
+        <label class="vis-toggle" style="color: #ffff00;">
+            <input type="checkbox" id="visSpkMag" checked onchange="toggleChartLine()"> Speaker Asli (Kuning)
+        </label>
+        <label class="vis-toggle" style="color: #00aaff;">
+            <input type="checkbox" id="visFirMag" checked onchange="toggleChartLine()"> FIR DSP (Biru)
+        </label>
+        <label class="vis-toggle" style="color: #00ff00;">
+            <input type="checkbox" id="visSumMag" checked onchange="toggleChartLine()"> Hasil DSP (Hijau)
+        </label>
+        <label class="vis-toggle" style="color: rgba(255, 255, 0, 0.7);">
+            <input type="checkbox" id="visSpkPhase" checked onchange="toggleChartLine()"> Phase Speaker
+        </label>
+        <label class="vis-toggle" style="color: #00ff00;">
+            <input type="checkbox" id="visSumPhase" checked onchange="toggleChartLine()"> Phase Hasil
+        </label>
+        <label class="vis-toggle" style="color: #ff3333;">
+            <input type="checkbox" id="visCoh" checked onchange="toggleChartLine()"> Coherence
+        </label>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="mainChart"></canvas>
+    </div>
+
+    <div class="output-group">
+        <label for="coeffOutput">Complex Inverse FIR Coefficients (Copy ke DSP):</label>
+        <textarea id="coeffOutput" readonly></textarea>
+    </div>
+</div>
+
+<script>
+    let mainChart = null;
+    let importedSmaartData = null; 
+    let currentExportData = null; 
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        const fileName = file.name.toLowerCase();
+
+        if (fileName.endsWith('.wav')) {
+            reader.onload = async function(e) {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                try {
+                    const audioBuffer = await audioCtx.decodeAudioData(e.target.result);
+                    const irData = Array.from(audioBuffer.getChannelData(0));
+                    document.getElementById('sampleRate').value = audioBuffer.sampleRate;
+                    importedSmaartData = null;
+                    processWavIR(irData);
+                } catch (err) {
+                    alert("Gagal memproses file WAV.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const lines = text.split(/[\r\n]+/);
+                const parsedData = [];
+
+                for(let line of lines) {
+                    let l = line.trim();
+                    if(!l || l.startsWith('[') || l.match(/^[a-zA-Z]/)) continue; 
+                    
+                    let parts = l.split(/[\t\s,]+/);
+                    if(parts.length >= 2) {
+                        let f = parseFloat(parts[0]);
+                        let mag = parts[1] === '*' ? null : parseFloat(parts[1]);
+                        let phase = (parts[2] !== undefined && parts[2] !== '*') ? parseFloat(parts[2]) : null;
+                        let coh = (parts[3] !== undefined && parts[3] !== '*') ? parseFloat(parts[3]) : null;
+                        
+                        if(!isNaN(f)) {
+                            parsedData.push({f: f, mag: mag, phase: phase, coh: coh});
+                        }
+                    }
+                }
+
+                if(parsedData.length === 0) {
+                    alert("Data tidak valid atau format tidak dikenali.");
+                    return;
+                }
+                
+                importedSmaartData = parsedData;
+                alert("Data Pengukuran Berhasil Diimpor!");
+                calculateFIR();
+            };
+            reader.readAsText(file);
+        }
+    }
+
+    function processWavIR(irData) {
+        let currentTaps = irData.length;
+        if (currentTaps > 1024) { irData = irData.slice(0, 1024); currentTaps = 1024; }
+        
+        const fs = parseFloat(document.getElementById('sampleRate').value);
+        const logFreqs = generateLogFreqs(1000, 20, fs/2); 
+        
+        const dtft = calculateDTFT(irData, currentTaps, fs, logFreqs);
+        
+        importedSmaartData = [];
+        for(let i=0; i<logFreqs.length; i++) {
+            importedSmaartData.push({
+                f: logFreqs[i],
+                mag: dtft.magDb[i],
+                phase: dtft.phase[i],
+                coh: 1.0 
+            });
+        }
+        calculateFIR();
+    }
+
+    function generateLogFreqs(points, minF, maxF) {
+        const freqs = [];
+        const minLog = Math.log10(minF);
+        const maxLog = Math.log10(maxF);
+        for(let i = 0; i < points; i++) {
+            freqs.push(Math.pow(10, minLog + (maxLog - minLog) * (i / (points - 1))));
+        }
+        return freqs;
+    }
+
+    function getSmaartDataAtFreq(f) {
+        if(!importedSmaartData) return { mag: 0, phase: 0, coh: 1 };
+        let validData = importedSmaartData.filter(d => d.mag !== null);
+        if(validData.length === 0) return { mag: 0, phase: 0, coh: 1 };
+        
+        if(f <= validData[0].f) return { mag: validData[0].mag, phase: validData[0].phase || 0, coh: validData[0].coh || 1 };
+        if(f >= validData[validData.length-1].f) return { mag: validData[validData.length-1].mag, phase: validData[validData.length-1].phase || 0, coh: validData[validData.length-1].coh || 1 };
+        
+        for(let i=0; i<validData.length-1; i++){
+            if(f >= validData[i].f && f <= validData[i+1].f) {
+                let ratio = (Math.log10(f) - Math.log10(validData[i].f)) / (Math.log10(validData[i+1].f) - Math.log10(validData[i].f));
+                let m = validData[i].mag + ratio * (validData[i+1].mag - validData[i].mag);
+                // Linear interpolation for phase (simplified, assuming no extreme wrapping between close bins)
+                let p = (validData[i].phase || 0) + ratio * ((validData[i+1].phase || 0) - (validData[i].phase || 0));
+                let c1 = validData[i].coh !== null ? validData[i].coh : 1;
+                let c2 = validData[i+1].coh !== null ? validData[i+1].coh : 1;
+                let c = c1 + ratio * (c2 - c1);
+                return { mag: m, phase: p, coh: c };
+            }
+        }
+        return { mag: 0, phase: 0, coh: 1 };
+    }
+
+    function applySmoothing(freqs, magDataDb, fraction) {
+        if (fraction === 0) return magDataDb; 
+        
+        const smoothed = [];
+        for (let i = 0; i < freqs.length; i++) {
+            if (magDataDb[i] === null) {
+                smoothed.push(null);
+                continue;
+            }
+            const fc = freqs[i];
+            const flow = fc * Math.pow(2, -1 / (2 * fraction));
+            const fhigh = fc * Math.pow(2, 1 / (2 * fraction));
+            let sumLinear = 0;
+            let count = 0;
+            for (let j = 0; j < freqs.length; j++) {
+                if (magDataDb[j] === null) continue;
+                if (freqs[j] >= flow && freqs[j] <= fhigh) {
+                    sumLinear += Math.pow(10, magDataDb[j] / 20); 
+                    count++;
+                }
+                if (freqs[j] > fhigh) break; 
+            }
+            if (count > 0) {
+                const avgLinear = sumLinear / count;
+                smoothed.push(20 * Math.log10(avgLinear)); 
+            } else {
+                smoothed.push(magDataDb[i]);
+            }
+        }
+        return smoothed;
+    }
+
+    function calculateFIR() {
+        if (!importedSmaartData) {
+            alert("Peringatan: Silakan impor data Smaart terlebih dahulu agar sistem bisa mendeteksi respon speaker Anda.");
+            return;
+        }
+
+        const fs = parseFloat(document.getElementById('sampleRate').value);
+        let taps = parseInt(document.getElementById('taps').value);
+        const minFreq = parseFloat(document.getElementById('minFreq').value);
+        const maxFreq = parseFloat(document.getElementById('maxFreq').value);
+        const minGain = parseFloat(document.getElementById('minGain').value);
+        const maxGain = parseFloat(document.getElementById('maxGain').value);
+        const cohWeighting = document.getElementById('cohWeighting').checked;
+        const smoothingFraction = parseInt(document.getElementById('smoothing').value);
+
+        if (taps < 64) taps = 64;
+        if (taps > 1024) taps = 1024;
+        document.getElementById('taps').value = taps; 
+        if (maxFreq >= fs / 2) { alert("Error: Max Frequency melebihi Nyquist."); return; }
+
+        const M = taps - 1; 
+        const center = M / 2;
+        let targetMagLinear = new Array(Math.floor(taps/2) + 1).fill(1); 
+        let targetPhaseRad = new Array(Math.floor(taps/2) + 1).fill(0); // Phase Target (Radian)
+
+        for (let k = 0; k <= Math.floor(taps / 2); k++) {
+            let f = k * fs / taps;
+            if (f >= minFreq && f <= maxFreq) {
+                let sData = getSmaartDataAtFreq(f);
+                
+                // Target Magnitude
+                let invDb = -sData.mag; 
+                // Target Phase (Inverse)
+                let invPhaseRad = -(sData.phase || 0) * (Math.PI / 180);
+                
+                if (cohWeighting) {
+                    invDb = invDb * sData.coh;
+                    invPhaseRad = invPhaseRad * sData.coh;
+                }
+
+                if (invDb > maxGain) invDb = maxGain;
+                if (invDb < minGain) invDb = minGain;
+                
+                targetMagLinear[k] = Math.pow(10, invDb / 20);
+                targetPhaseRad[k] = invPhaseRad;
+            }
+        }
+
+        // Complex IDFT (Menghasilkan Mixed-Phase FIR)
+        let h = new Array(taps).fill(0);
+        for (let n = 0; n < taps; n++) {
+            let sum = targetMagLinear[0] * Math.cos(targetPhaseRad[0]); // DC
+            
+            for (let k = 1; k < Math.floor(taps/2); k++) {
+                // Injeksi targetPhaseRad ke dalam perhitungan Kosinus
+                sum += 2 * targetMagLinear[k] * Math.cos((2 * Math.PI * k * (n - center) / taps) + targetPhaseRad[k]);
+            }
+            if (taps % 2 === 0) { 
+                sum += targetMagLinear[taps/2] * Math.cos(Math.PI * (n - center) + targetPhaseRad[taps/2]);
+            }
+            const windowVal = 0.54 - 0.46 * Math.cos((2 * Math.PI * n) / M);
+            h[n] = (sum / taps) * windowVal;
+        }
+        document.getElementById('coeffOutput').value = h.join(',\n');
+        
+        let targetFreqs = importedSmaartData.map(d => d.f);
+        let importedMagRaw = importedSmaartData.map(d => d.mag);
+        let importedPhaseRaw = importedSmaartData.map(d => d.phase);
+        let importedCohRaw = importedSmaartData.map(d => d.coh);
+
+        const firDtft = calculateDTFT(h, taps, fs, targetFreqs);
+        const smoothedFirMag = applySmoothing(targetFreqs, firDtft.magDb, smoothingFraction);
+        const smoothedImportedMag = applySmoothing(targetFreqs, importedMagRaw, smoothingFraction);
+
+        const chartFirMag = [];       
+        const chartPhaseSmaart = [];  
+        const chartPhaseSum = [];     
+        const chartMagBefore = [];    
+        const chartCoh = [];          
+        const chartSum = [];          
+
+        currentExportData = []; 
+
+        for(let i=0; i<targetFreqs.length; i++) {
+            let f = targetFreqs[i];
+            
+            chartFirMag.push({x: f, y: smoothedFirMag[i]});
+            chartPhaseSmaart.push({x: f, y: importedPhaseRaw[i]}); 
+            chartMagBefore.push({x: f, y: smoothedImportedMag[i]});
+            chartCoh.push({x: f, y: importedCohRaw[i]});
+
+            let summedMag = null;
+            let summedPhase = null;
+
+            if (smoothedImportedMag[i] !== null && smoothedFirMag[i] !== null) {
+                // Kalkulasi Hasil DSP Mag
+                summedMag = smoothedImportedMag[i] + smoothedFirMag[i];
+                chartSum.push({x: f, y: summedMag});
+                
+                // Kalkulasi Hasil DSP Phase dengan sistem Wrap ketat -180..180
+                let rawSumPhase = importedPhaseRaw[i] + firDtft.phase[i];
+                summedPhase = ((rawSumPhase + 180) % 360 + 360) % 360 - 180;
+                chartPhaseSum.push({x: f, y: summedPhase});
+                
+                currentExportData.push({
+                    f: f.toFixed(2),
+                    magBiru: smoothedFirMag[i].toFixed(2),
+                    magHijau: summedMag.toFixed(2),
+                    phase: summedPhase.toFixed(2)
+                });
+            } else {
+                chartSum.push({x: f, y: null});
+                chartPhaseSum.push({x: f, y: null});
+            }
+        }
+
+        plotCharts(chartFirMag, chartPhaseSmaart, chartPhaseSum, chartMagBefore, chartCoh, chartSum);
+    }
+
+    function calculateDTFT(hData, tapsLength, fs, freqsArray) {
+        const magDb = [];
+        const phase = [];
+        const center = (tapsLength - 1) / 2; 
+
+        for (let i = 0; i < freqsArray.length; i++) {
+            const f = freqsArray[i];
+            const omega = 2 * Math.PI * (f / fs);
+            let real = 0;
+            let imag = 0;
+
+            for (let n = 0; n < tapsLength; n++) {
+                real += hData[n] * Math.cos(-omega * n);
+                imag += hData[n] * Math.sin(-omega * n);
+            }
+
+            const magnitude = Math.sqrt(real * real + imag * imag);
+            magDb.push(20 * Math.log10(magnitude + 1e-12)); 
+
+            let ph = Math.atan2(imag, real);
+            ph = ph + (omega * center);
+            ph = ((ph + Math.PI) % (2 * Math.PI)) - Math.PI;
+            if (ph < -Math.PI) ph += 2 * Math.PI;
+
+            phase.push(ph * (180 / Math.PI));
+        }
+        return { magDb, phase };
+    }
+
+    function toggleChartLine() {
+        if (!mainChart) return;
+        
+        mainChart.data.datasets[0].hidden = !document.getElementById('visSpkMag').checked;
+        mainChart.data.datasets[1].hidden = !document.getElementById('visFirMag').checked;
+        mainChart.data.datasets[2].hidden = !document.getElementById('visSumMag').checked;
+        mainChart.data.datasets[3].hidden = !document.getElementById('visSpkPhase').checked;
+        mainChart.data.datasets[4].hidden = !document.getElementById('visSumPhase').checked;
+        mainChart.data.datasets[5].hidden = !document.getElementById('visCoh').checked;
+        
+        mainChart.update();
+    }
+
+    function downloadSmaartTXT() {
+        if (!currentExportData || currentExportData.length === 0) {
+            alert("Tidak ada data untuk didownload. Silakan jalankan 'Generate' terlebih dahulu.");
+            return;
+        }
+
+        let txtContent = "AutoFIR_Result\n";
+        txtContent += "Frequency (Hz)\tFIR Counter EQ (dB)\tHasil Sum DSP (dB)\tPhase Hasil (degrees)\n";
+
+        currentExportData.forEach(row => {
+            txtContent += `${row.f}\t${row.magBiru}\t${row.magHijau}\t${row.phase}\n`;
+        });
+
+        const blob = new Blob([txtContent], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'AutoFIR_Smaart_Export.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function plotCharts(chartFirMag, chartPhaseSmaart, chartPhaseSum, chartMagBefore, cohData, sumData) {
+        const vizMin = -30;
+        const vizMax = 20;
+        const isoTicks = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
+        const xAxisConfig = {
+            type: 'logarithmic',
+            min: 20, 
+            max: 20000, 
+            title: { display: false },
+            grid: { color: '#333333', drawBorder: true },
+            ticks: {
+                color: '#aaaaaa',
+                maxRotation: 0,
+                callback: function(value) {
+                    if (isoTicks.includes(value)) {
+                        return value >= 1000 ? (value / 1000) + 'k' : value;
+                    }
+                    return null; 
+                }
+            },
+            afterBuildTicks: function(axis) {
+                axis.ticks = isoTicks.map(v => ({ value: v }));
+            }
+        };
+
+        const lineOptions = {
+            borderWidth: 1.5,
+            showLine: true,
+            pointRadius: 0,
+            cubicInterpolationMode: 'monotone', 
+            tension: 0.2 
+        };
+
+        const ctxMain = document.getElementById('mainChart').getContext('2d');
+        if (mainChart) mainChart.destroy();
+
+        mainChart = new Chart(ctxMain, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: 'Speaker Asli (Kuning)',
+                        data: chartMagBefore,
+                        borderColor: '#ffff00',
+                        ...lineOptions,
+                        yAxisID: 'y',
+                        hidden: !document.getElementById('visSpkMag').checked
+                    },
+                    {
+                        label: 'FIR DSP EQ (Biru)',
+                        data: chartFirMag,
+                        borderColor: '#00aaff', 
+                        ...lineOptions,
+                        yAxisID: 'y',
+                        hidden: !document.getElementById('visFirMag').checked
+                    },
+                    {
+                        label: 'Hasil Akhir DSP (Hijau)',
+                        data: sumData,
+                        borderColor: '#00ff00', 
+                        ...lineOptions,
+                        borderWidth: 2.5, 
+                        yAxisID: 'y',
+                        hidden: !document.getElementById('visSumMag').checked
+                    },
+                    {
+                        label: 'Phase Speaker (Kuning Putus)',
+                        data: chartPhaseSmaart,
+                        borderColor: 'rgba(255, 255, 0, 0.5)', 
+                        ...lineOptions,
+                        borderWidth: 1.2,
+                        borderDash: [5, 5],
+                        yAxisID: 'yPhase',
+                        hidden: !document.getElementById('visSpkPhase').checked
+                    },
+                    {
+                        label: 'Phase Hasil (Hijau Putus)',
+                        data: chartPhaseSum,
+                        borderColor: '#00ff00', 
+                        ...lineOptions,
+                        borderWidth: 1.5,
+                        borderDash: [4, 4],
+                        yAxisID: 'yPhase',
+                        hidden: !document.getElementById('visSumPhase').checked
+                    },
+                    {
+                        label: 'Smaart Coherence (Merah)',
+                        data: cohData,
+                        borderColor: 'rgba(255, 0, 0, 0.7)',
+                        ...lineOptions,
+                        yAxisID: 'yCoh',
+                        hidden: !document.getElementById('visCoh').checked
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: xAxisConfig,
+                    y: {
+                        type: 'linear', display: true, position: 'left',
+                        min: vizMin, max: vizMax,
+                        ticks: { color: '#aaaaaa', stepSize: 5 }, 
+                        grid: { color: '#333333' }
+                    },
+                    yPhase: {
+                        type: 'linear', display: true, position: 'right',
+                        min: -180, max: 180,
+                        ticks: { color: '#aaaaaa', stepSize: 45 },
+                        grid: { drawOnChartArea: false }
+                    },
+                    yCoh: {
+                        type: 'linear', display: true, position: 'right',
+                        min: 0, max: 1.1,
+                        ticks: { color: '#ff0000', stepSize: 0.2 },
+                        grid: { drawOnChartArea: false }
+                    }
+                }
+            }
+        });
+    }
+</script>
+
+</body>
+</html>

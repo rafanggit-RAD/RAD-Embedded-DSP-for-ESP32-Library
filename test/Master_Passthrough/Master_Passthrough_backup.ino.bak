@@ -1,0 +1,132 @@
+#include <RadDSP.h>
+
+RadDSP::I2S i2s;
+RadDSP::Controller dspControl;
+
+// --- EQ PRE (Sebelum Pemrosesan Lainnya) ---
+RadDSP::Biquad EqPreBand1;
+RadDSP::Biquad EqPreBand2;
+RadDSP::Biquad EqPreBand3;
+RadDSP::Biquad EqPreBand4;
+
+// --- EQ POST (Setelah Pemrosesan Lainnya) ---
+RadDSP::Biquad EqPostBand1;
+RadDSP::Biquad EqPostBand2;
+RadDSP::Biquad EqPostBand3;
+RadDSP::Biquad EqPostBand4;
+
+// --- EQ COBA (Tugas Core 1) ---
+RadDSP::Biquad EqCoba;
+
+// ============================================================================
+// GLOBAL VARIABLES FOR DUAL-CORE PIPELINE
+// ============================================================================
+RadDSP::Router router;
+
+// ============================================================================
+// TASK CORE 1 (HELPER: EQCoba)
+// ============================================================================
+void audioLoopCore1(void* pvParameters) {
+    float *left, *right;
+    int len;
+
+    while (true) {
+        // 1. Terima sinyal audio dari Core 0
+        router.receiveFromCore0(&left, &right, &len);
+
+        // 2. Mulai Telemetri
+        dspControl.markProcessStart(1);
+
+        // 3. Proses EQ Coba
+        EqCoba.process(left, len, 0);
+        EqCoba.process(right, len, 1);
+
+        // 4. Akhiri Telemetri
+        dspControl.markProcessEnd(1, len, 48000);
+
+        // 5. Kembalikan kontrol ke Core 0
+        router.sendToCore0();
+    }
+}
+
+// ============================================================================
+// TASK CORE 0 (UTAMA)
+// ============================================================================
+void audioLoop() {
+    dspControl.poll();
+    
+    if (i2s.readBlock()) {
+        float* left = i2s.getLeftBuffer();
+        float* right = i2s.getRightBuffer();
+        int len = i2s.getBufferLength();
+        
+        dspControl.markProcessStart(0);
+        
+        // 1. PRE-EQ (Memproses input I2S)
+        left = EqPreBand4.process(EqPreBand3.process(EqPreBand2.process(EqPreBand1.process(left, len, 0), len, 0), len, 0), len, 0);
+        right = EqPreBand4.process(EqPreBand3.process(EqPreBand2.process(EqPreBand1.process(right, len, 1), len, 1), len, 1), len, 1);
+        
+        // 2. LEMPAR KE CORE 1
+        router.sendToCore1(left, right, len);
+
+        // 3. TUNGGU CORE 1 SELESAI
+        router.receiveFromCore1();
+        
+        // 4. POST-EQ
+        left = EqPostBand4.process(EqPostBand3.process(EqPostBand2.process(EqPostBand1.process(left, len, 0), len, 0), len, 0), len, 0);
+        right = EqPostBand4.process(EqPostBand3.process(EqPostBand2.process(EqPostBand1.process(right, len, 1), len, 1), len, 1), len, 1);
+        
+        dspControl.markProcessEnd(0, len, 48000);
+        
+        // 5. TULIS KE DAC
+        i2s.writeBlock();
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    
+    // Mendaftarkan PRE-EQ (ID 1-4)
+    dspControl.attach(1, &EqPreBand1);
+    dspControl.attach(2, &EqPreBand2);
+    dspControl.attach(3, &EqPreBand3);
+    dspControl.attach(4, &EqPreBand4);
+    
+    // Mendaftarkan POST-EQ (ID 5-8)
+    dspControl.attach(5, &EqPostBand1);
+    dspControl.attach(6, &EqPostBand2);
+    dspControl.attach(7, &EqPostBand3);
+    dspControl.attach(8, &EqPostBand4);
+    
+    // Mendaftarkan EQCoba (ID 9)
+    dspControl.attach(9, &EqCoba);
+    
+    dspControl.beginSerial(115200);
+    // Buffer size diubah ke 32 sampel untuk latency ultra-rendah!
+    i2s.begin(I2S_NUM_0, 48000, 32, true, 26, 25, 33, 23, 0, false, 8, 32);
+
+    // Setup Default PRE-EQ
+    EqPreBand1.setLowShelf(100.0f, 0.0f, 0.707f);
+    EqPreBand2.setPeakingEQ(1000.0f, 0.0f, 1.0f);
+    EqPreBand3.setPeakingEQ(4000.0f, 0.0f, 1.0f);
+    EqPreBand4.setHighShelf(10000.0f, 0.0f, 0.707f);
+
+    // Setup Default EQCoba (Core 1)
+    EqCoba.setBandpass(2000.0f, 1.0f);
+
+    // Setup Default POST-EQ
+    EqPostBand1.setLowShelf(100.0f, 0.0f, 0.707f);
+    EqPostBand2.setPeakingEQ(1000.0f, 0.0f, 1.0f);
+    EqPostBand3.setPeakingEQ(4000.0f, 0.0f, 1.0f);
+    
+    // 4. Jalankan Router di Core 1
+    router.begin(audioLoopCore1);
+    
+    // 5. Jalankan Audio Task Utama di Core 0 (Mematikan loop() Arduino)
+    RadDSP::startAudioTask(audioLoop, 0, true);
+}
+
+void loop() {
+    dspControl.poll();
+    delay(5);
+}

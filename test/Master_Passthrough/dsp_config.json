@@ -1,0 +1,688 @@
+{
+  "routing": [
+    [
+      "I2S_In",
+      "meterAnalogL"
+    ],
+    [
+      "meterAnalogL",
+      "EqI2S_0_L"
+    ],
+    [
+      "EqI2S_0_L",
+      "EqI2S_1_L"
+    ],
+    [
+      "EqI2S_1_L",
+      "EqI2S_2_L"
+    ],
+    [
+      "EqI2S_2_L",
+      "EqI2S_3_L"
+    ],
+    [
+      "EqI2S_3_L",
+      "CompI2S_L"
+    ],
+    [
+      "CompI2S_L",
+      "mixerL"
+    ],
+    [
+      "I2S_In",
+      "meterAnalogR"
+    ],
+    [
+      "meterAnalogR",
+      "EqI2S_0_R"
+    ],
+    [
+      "EqI2S_0_R",
+      "EqI2S_1_R"
+    ],
+    [
+      "EqI2S_1_R",
+      "EqI2S_2_R"
+    ],
+    [
+      "EqI2S_2_R",
+      "EqI2S_3_R"
+    ],
+    [
+      "EqI2S_3_R",
+      "CompI2S_R"
+    ],
+    [
+      "CompI2S_R",
+      "mixerR"
+    ],
+    [
+      "BT_In",
+      "meterBtL"
+    ],
+    [
+      "meterBtL",
+      "EqBT_0_L"
+    ],
+    [
+      "EqBT_0_L",
+      "EqBT_1_L"
+    ],
+    [
+      "EqBT_1_L",
+      "EqBT_2_L"
+    ],
+    [
+      "EqBT_2_L",
+      "EqBT_3_L"
+    ],
+    [
+      "EqBT_3_L",
+      "mixerL"
+    ],
+    [
+      "BT_In",
+      "meterBtR"
+    ],
+    [
+      "meterBtR",
+      "EqBT_0_R"
+    ],
+    [
+      "EqBT_0_R",
+      "EqBT_1_R"
+    ],
+    [
+      "EqBT_1_R",
+      "EqBT_2_R"
+    ],
+    [
+      "EqBT_2_R",
+      "EqBT_3_R"
+    ],
+    [
+      "EqBT_3_R",
+      "mixerR"
+    ],
+    [
+      "mixerL",
+      "EqMaster_0_L"
+    ],
+    [
+      "EqMaster_0_L",
+      "EqMaster_1_L"
+    ],
+    [
+      "EqMaster_1_L",
+      "EqMaster_2_L"
+    ],
+    [
+      "EqMaster_2_L",
+      "EqMaster_3_L"
+    ],
+    [
+      "EqMaster_3_L",
+      "EqMaster_4_L"
+    ],
+    [
+      "EqMaster_4_L",
+      "EqMaster_5_L"
+    ],
+    [
+      "EqMaster_5_L",
+      "firL"
+    ],
+    [
+      "firL",
+      "LimiterMaster_L"
+    ],
+    [
+      "LimiterMaster_L",
+      "meterL"
+    ],
+    [
+      "meterL",
+      "routerL"
+    ],
+    [
+      "routerL",
+      "I2S0_Out"
+    ],
+    [
+      "mixerR",
+      "EqMaster_0_R"
+    ],
+    [
+      "EqMaster_0_R",
+      "EqMaster_1_R"
+    ],
+    [
+      "EqMaster_1_R",
+      "EqMaster_2_R"
+    ],
+    [
+      "EqMaster_2_R",
+      "EqMaster_3_R"
+    ],
+    [
+      "EqMaster_3_R",
+      "EqMaster_4_R"
+    ],
+    [
+      "EqMaster_4_R",
+      "EqMaster_5_R"
+    ],
+    [
+      "EqMaster_5_R",
+      "firR"
+    ],
+    [
+      "firR",
+      "LimiterMaster_R"
+    ],
+    [
+      "LimiterMaster_R",
+      "meterR"
+    ],
+    [
+      "meterR",
+      "routerR"
+    ],
+    [
+      "routerR",
+      "I2S0_Out"
+    ],
+    [
+      "routerL",
+      "I2S1_Out"
+    ],
+    [
+      "routerR",
+      "I2S1_Out"
+    ]
+  ],
+  "modules": {
+    "1": {
+      "name": "EqI2S_0_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "2": {
+      "name": "EqI2S_0_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "3": {
+      "name": "EqI2S_1_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "4": {
+      "name": "EqI2S_1_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "5": {
+      "name": "EqI2S_2_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "6": {
+      "name": "EqI2S_2_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "7": {
+      "name": "EqI2S_3_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "8": {
+      "name": "EqI2S_3_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "9": {
+      "name": "CompI2S_L",
+      "type": "Dynamics",
+      "params": [
+        "0: Dynamics Type",
+        "1: Threshold (dB)",
+        "2: Ratio",
+        "3: Attack (ms)",
+        "4: Hold (ms)",
+        "5: Release (ms)",
+        "6: Makeup Gain (dB)",
+        "7: SC Filter Type",
+        "8: SC Freq (Hz)",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "10": {
+      "name": "CompI2S_R",
+      "type": "Dynamics",
+      "params": [
+        "0: Dynamics Type",
+        "1: Threshold (dB)",
+        "2: Ratio",
+        "3: Attack (ms)",
+        "4: Hold (ms)",
+        "5: Release (ms)",
+        "6: Makeup Gain (dB)",
+        "7: SC Filter Type",
+        "8: SC Freq (Hz)",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "11": {
+      "name": "EqBT_0_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "12": {
+      "name": "EqBT_0_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "13": {
+      "name": "EqBT_1_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "14": {
+      "name": "EqBT_1_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "15": {
+      "name": "EqBT_2_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "16": {
+      "name": "EqBT_2_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "17": {
+      "name": "EqBT_3_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "18": {
+      "name": "EqBT_3_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "19": {
+      "name": "mixerL",
+      "type": "Mixer<2>",
+      "params": [
+        "0: Gain In0 (dB)",
+        "1: Gain In1 (dB)",
+        "100: Mute In0 (0/1)",
+        "101: Mute In1 (0/1)"
+      ]
+    },
+    "20": {
+      "name": "mixerR",
+      "type": "Mixer<2>",
+      "params": [
+        "0: Gain In0 (dB)",
+        "1: Gain In1 (dB)",
+        "100: Mute In0 (0/1)",
+        "101: Mute In1 (0/1)"
+      ]
+    },
+    "21": {
+      "name": "EqMaster_0_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "22": {
+      "name": "EqMaster_0_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "23": {
+      "name": "EqMaster_1_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "24": {
+      "name": "EqMaster_1_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "25": {
+      "name": "EqMaster_2_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "26": {
+      "name": "EqMaster_2_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "27": {
+      "name": "EqMaster_3_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "28": {
+      "name": "EqMaster_3_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "29": {
+      "name": "EqMaster_4_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "30": {
+      "name": "EqMaster_4_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "31": {
+      "name": "EqMaster_5_L",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "32": {
+      "name": "EqMaster_5_R",
+      "type": "Biquad",
+      "params": [
+        "0: Filter Type",
+        "1: Frequency (Hz)",
+        "2: Gain (dB)",
+        "3: Q-Factor",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "33": {
+      "name": "firL",
+      "type": "FIR",
+      "params": [
+        "3: Taps Number (16-512)",
+        "4: Gain (dB)",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "34": {
+      "name": "firR",
+      "type": "FIR",
+      "params": [
+        "3: Taps Number (16-512)",
+        "4: Gain (dB)",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "35": {
+      "name": "LimiterMaster_L",
+      "type": "Dynamics",
+      "params": [
+        "0: Dynamics Type",
+        "1: Threshold (dB)",
+        "2: Ratio",
+        "3: Attack (ms)",
+        "4: Hold (ms)",
+        "5: Release (ms)",
+        "6: Makeup Gain (dB)",
+        "7: SC Filter Type",
+        "8: SC Freq (Hz)",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "36": {
+      "name": "LimiterMaster_R",
+      "type": "Dynamics",
+      "params": [
+        "0: Dynamics Type",
+        "1: Threshold (dB)",
+        "2: Ratio",
+        "3: Attack (ms)",
+        "4: Hold (ms)",
+        "5: Release (ms)",
+        "6: Makeup Gain (dB)",
+        "7: SC Filter Type",
+        "8: SC Freq (Hz)",
+        "100: Bypass (0/1)"
+      ]
+    },
+    "39": {
+      "name": "meterL",
+      "type": "Meter",
+      "params": [
+        "0: Level (dB)",
+        "1: Decay Factor"
+      ]
+    },
+    "40": {
+      "name": "meterR",
+      "type": "Meter",
+      "params": [
+        "0: Level (dB)",
+        "1: Decay Factor"
+      ]
+    },
+    "41": {
+      "name": "meterAnalogL",
+      "type": "Meter",
+      "params": [
+        "0: Level (dB)",
+        "1: Decay Factor"
+      ]
+    },
+    "42": {
+      "name": "meterAnalogR",
+      "type": "Meter",
+      "params": [
+        "0: Level (dB)",
+        "1: Decay Factor"
+      ]
+    },
+    "43": {
+      "name": "meterBtL",
+      "type": "Meter",
+      "params": [
+        "0: Level (dB)",
+        "1: Decay Factor"
+      ]
+    },
+    "44": {
+      "name": "meterBtR",
+      "type": "Meter",
+      "params": [
+        "0: Level (dB)",
+        "1: Decay Factor"
+      ]
+    },
+    "37": {
+      "name": "routerL",
+      "type": "MatrixRouter<3, 2>",
+      "params": [
+        "0: In0->Out0 (Lin)",
+        "1: In0->Out1 (Lin)",
+        "2: In1->Out0 (Lin)",
+        "3: In1->Out1 (Lin)",
+        "4: In2->Out0 (Lin)",
+        "5: In2->Out1 (Lin)"
+      ]
+    },
+    "38": {
+      "name": "routerR",
+      "type": "MatrixRouter<3, 2>",
+      "params": [
+        "0: In0->Out0 (Lin)",
+        "1: In0->Out1 (Lin)",
+        "2: In1->Out0 (Lin)",
+        "3: In1->Out1 (Lin)",
+        "4: In2->Out0 (Lin)",
+        "5: In2->Out1 (Lin)"
+      ]
+    }
+  }
+}
