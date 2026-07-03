@@ -114,7 +114,7 @@ Salin seluruh folder `RAD_DSP_LIB` ini ke direktori pustaka Arduino global kompu
 
 ### 3. Mengontrol Menggunakan RadStudio GUI
 1. Pastikan python telah terinstal beserta library `pyserial` dan `tkinter`.
-2. Jalankan aplikasi GUI dari termi## Dokumentasi Sintaks & API Lengkap
+2. Jalankan aplikasi GUI dari terminal.
 
 Dokumentasi ini berisi daftar kelas, fungsi, contoh inisialisasi, cara penggunaan, serta pemetaan parameter untuk setiap modul DSP yang didukung oleh pustaka **RAD_DSP_LIB** dalam mode pemrosesan mono murni.
 
