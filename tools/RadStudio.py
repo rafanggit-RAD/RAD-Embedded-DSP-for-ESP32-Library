@@ -196,6 +196,10 @@ class RadStudio:
         self.module_map = {}
         self.module_list_keys = []
         self.load_module_config()
+        self.autofir_cache = self.load_autofir_cache()
+        
+        # Menu Bar untuk Save/Load Session
+        self.create_menu()
         
         # UI Elements
         self.create_widgets()
@@ -205,6 +209,129 @@ class RadStudio:
         self.module_map = {}
         self.routing_edges = []
         self.schema_fetched = False
+
+    def autofir_cache_path(self):
+        return os.path.join(os.path.dirname(__file__), ".radstudio_autofir_cache.json")
+
+    def load_autofir_cache(self):
+        try:
+            path = self.autofir_cache_path()
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    return data if isinstance(data, dict) else {}
+        except Exception:
+            pass
+        return {}
+
+    def save_autofir_cache(self):
+        try:
+            with open(self.autofir_cache_path(), "w") as f:
+                json.dump(self.autofir_cache, f, indent=4)
+        except Exception:
+            pass
+
+    def update_autofir_cache(self, module_id, state):
+        if not hasattr(self, "autofir_cache") or not isinstance(self.autofir_cache, dict):
+            self.autofir_cache = {}
+        self.autofir_cache[str(module_id)] = state
+        self.save_autofir_cache()
+
+    def create_menu(self):
+        menubar = tk.Menu(self.root)
+        filemenu = tk.Menu(menubar, tearoff=0)
+        filemenu.add_command(label="Save Session (JSON)...", command=self.save_session)
+        filemenu.add_command(label="Load Session (JSON)...", command=self.load_session)
+        filemenu.add_separator()
+        filemenu.add_command(label="Exit", command=self.root.quit)
+        menubar.add_cascade(label="File", menu=filemenu)
+        self.root.config(menu=menubar)
+
+    def save_session(self):
+        filepath = filedialog.asksaveasfilename(title="Save Session", defaultextension=".json", filetypes=[("JSON Files", "*.json")])
+        if not filepath: return
+        
+        session_data = {
+            "modules": self.module_map,
+            "routing": self.routing_edges,
+            "parameter_values": {},
+            "autofir_state": self.autofir_cache
+        }
+        
+        if self.serial_port and self.serial_port.is_open:
+            self.lbl_status.config(text="Status: Querying parameter values to save...", fg="orange")
+            self.root.update()
+            
+            self.serial_port.timeout = 0.1
+            for k, m in self.module_map.items():
+                if isinstance(m, dict) and "params" in m:
+                    for param_str in m["params"]:
+                        try:
+                            p_idx = int(param_str.split(":")[0].strip())
+                        except:
+                            continue
+                        self.serial_port.write(f'{{"id":{k},"req":{p_idx}}}\n'.encode('ascii'))
+                        try:
+                            for _ in range(5):
+                                resp = self.serial_port.readline().decode('ascii').strip()
+                                if resp.startswith("{") and "ack" in resp:
+                                    data = json.loads(resp)
+                                    if data.get("id") == int(k) and data.get("p") == p_idx:
+                                        session_data["parameter_values"][f"{k}:{p_idx}"] = data.get("v", 0.0)
+                                        break
+                        except:
+                            pass
+            self.lbl_status.config(text="Status: Connected & Schema Loaded!", fg="green")
+            
+        try:
+            with open(filepath, "w") as f:
+                json.dump(session_data, f, indent=4)
+            messagebox.showinfo("Success", "Session saved successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save session:\n{e}")
+        
+    def load_session(self):
+        filepath = filedialog.askopenfilename(title="Load Session", filetypes=[("JSON Files", "*.json")])
+        if not filepath: return
+        
+        try:
+            with open(filepath, "r") as f:
+                session_data = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read file:\n{e}")
+            return
+            
+        if "modules" in session_data:
+            self.module_map = session_data["modules"]
+        if "routing" in session_data:
+            self.routing_edges = session_data["routing"]
+        if "autofir_state" in session_data and isinstance(session_data["autofir_state"], dict):
+            self.autofir_cache = session_data["autofir_state"]
+            self.save_autofir_cache()
+            
+        self.refresh_module_ui()
+        self.btn_send.config(state="normal")
+        self.btn_sync.config(state="normal")
+        self.btn_view_graph.config(state="normal")
+        
+        if self.serial_port and self.serial_port.is_open:
+            parameter_values = session_data.get("parameter_values", {})
+            import time
+            self.lbl_status.config(text="Status: Uploading session parameters...", fg="orange")
+            self.root.update()
+            
+            for key, val in parameter_values.items():
+                try:
+                    mod_id, p_idx = map(int, key.split(":"))
+                    cmd = f'{{"id":{mod_id},"p":{p_idx},"v":{val}}}\n'
+                    self.serial_port.write(cmd.encode('ascii'))
+                    time.sleep(0.01)
+                except Exception:
+                    pass
+            self.lbl_status.config(text="Status: Session Loaded & Parameters Uploaded!", fg="green")
+            messagebox.showinfo("Success", "Session parameters loaded and uploaded successfully!")
+        else:
+            messagebox.showinfo("Success", "Session loaded locally (not connected to upload).")
             
     def create_widgets(self):
         # Frame Connection
@@ -594,6 +721,10 @@ class RadStudio:
         popup.title(f"Parameter: {node_name}")
         popup.geometry("450x400")
         popup.attributes("-topmost", True)
+        popup.resizable(True, True)
+        if "FIR" in str(target_mod.get("type", "")).upper():
+            popup.geometry("1200x760")
+            popup.minsize(1100, 760)
         
         tk.Label(popup, text=f"{node_name} ({target_mod.get('type')})", font=("Arial", 12, "bold")).pack(pady=10)
         
@@ -860,122 +991,549 @@ class RadStudio:
             btn_frame.pack(fill="x", pady=10)
             tk.Button(btn_frame, text="Set All (Manual)", command=send_from_popup, bg="#A0E8AF", font=("Arial", 10, "bold")).pack(side="left", padx=10)
         
-            if target_mod.get("type") == "FIR":
-                def upload_ir():
-                    if not self.serial_port or not self.serial_port.is_open:
-                        messagebox.showerror("Error", "Not connected!", parent=popup)
-                        return
-                    filepath = filedialog.askopenfilename(title="Select IR File", filetypes=[("IR Files", "*.txt *.wav"), ("All Files", "*.*")], parent=popup)
-                    if not filepath: return
+            if "FIR" in str(target_mod.get("type", "")).upper():
+                # Clean up existing frame_params children and build AutoFIR UI layout
+                for widget in frame_params.winfo_children():
+                    widget.destroy()
                 
-                    taps = []
+                frame_left = tk.Frame(frame_params, width=280)
+                frame_left.pack(side="left", fill="y", padx=5, pady=5)
+                frame_right = tk.Frame(frame_params)
+                frame_right.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+
+                cached_state = self.autofir_cache.get(str(target_id), {}) if isinstance(self.autofir_cache, dict) else {}
+                
+                # Mode selection
+                tk.Label(frame_left, text="FIR Processing Mode:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(5, 2))
+                mode_var = tk.StringVar(value=cached_state.get("mode", "AutoFIR Normalizer"))
+                cb_mode = ttk.Combobox(frame_left, values=["Upload Raw IR", "AutoFIR Normalizer"], textvariable=mode_var, state="readonly")
+                cb_mode.pack(fill="x", pady=5)
+                
+                # Parameters frame
+                frame_autofir_params = tk.LabelFrame(frame_left, text="AutoFIR Settings", padx=5, pady=5)
+                frame_autofir_params.pack(fill="x", pady=5)
+                
+                tk.Label(frame_autofir_params, text="Max Boost (dB):").grid(row=0, column=0, sticky="w", pady=2)
+                ent_max_gain = tk.Entry(frame_autofir_params, width=8)
+                ent_max_gain.insert(0, str(cached_state.get("max_boost_db", 6.0)))
+                ent_max_gain.grid(row=0, column=1, pady=2, sticky="e")
+                
+                tk.Label(frame_autofir_params, text="Max Cut (dB):").grid(row=1, column=0, sticky="w", pady=2)
+                ent_min_gain = tk.Entry(frame_autofir_params, width=8)
+                ent_min_gain.insert(0, str(cached_state.get("max_cut_db", -12.0)))
+                ent_min_gain.grid(row=1, column=1, pady=2, sticky="e")
+                
+                tk.Label(frame_autofir_params, text="Min Freq (Hz):").grid(row=2, column=0, sticky="w", pady=2)
+                ent_min_freq = tk.Entry(frame_autofir_params, width=8)
+                ent_min_freq.insert(0, str(cached_state.get("min_freq_hz", 60.0)))
+                ent_min_freq.grid(row=2, column=1, pady=2, sticky="e")
+                
+                tk.Label(frame_autofir_params, text="Max Freq (Hz):").grid(row=3, column=0, sticky="w", pady=2)
+                ent_max_freq = tk.Entry(frame_autofir_params, width=8)
+                ent_max_freq.insert(0, str(cached_state.get("max_freq_hz", 16000.0)))
+                ent_max_freq.grid(row=3, column=1, pady=2, sticky="e")
+                
+                tk.Label(frame_autofir_params, text="Smoothing:").grid(row=4, column=0, sticky="w", pady=2)
+                smoothing_var = tk.StringVar(value=cached_state.get("smoothing", "1/48 Octave"))
+                cb_smoothing = ttk.Combobox(frame_autofir_params, values=["Off (Raw)", "1/48 Octave", "1/24 Octave", "1/12 Octave", "1/3 Octave"], textvariable=smoothing_var, state="readonly", width=12)
+                cb_smoothing.grid(row=4, column=1, pady=2, sticky="e")
+                
+                coh_var = tk.IntVar(value=int(cached_state.get("coherent_weighting", 1)))
+                chk_coh = tk.Checkbutton(frame_autofir_params, text="Coherent Weighting", variable=coh_var, command=lambda: schedule_autofir_recalc())
+                chk_coh.grid(row=5, column=0, columnspan=2, sticky="w", pady=2)
+
+                bypass_default = int(cached_state.get("bypass", 0))
+                if 100 in current_vals:
+                    bypass_default = int(current_vals[100])
+                bypass_var = tk.IntVar(value=bypass_default)
+                def bypass_changed():
+                    send_live(100, float(bypass_var.get()))
+                    persist_autofir_state()
+                chk_bypass = tk.Checkbutton(frame_autofir_params, text="Bypass", variable=bypass_var, command=bypass_changed)
+                chk_bypass.grid(row=6, column=0, columnspan=2, sticky="w", pady=2)
+
+                lbl_fir_info = tk.Label(frame_left, text="Sample Rate: 48000 Hz\nTaps: 512", justify="left")
+                lbl_fir_info.pack(anchor="w", pady=5)
+
+                fir_btn_frame = tk.Frame(frame_left)
+                fir_btn_frame.pack(fill="x", pady=(5, 8))
+                
+                # Graph canvas
+                canvas_graph = tk.Canvas(frame_right, bg="#111111", highlightthickness=0)
+                canvas_graph.pack(fill="both", expand=True)
+                
+                # Shared variables for loaded data
+                recalc_after_id = {"id": None}
+
+                loaded_data = {"freqs": [], "mags": [], "phases": [], "coherences": [], "raw_ir": [], "h": None}
+                if cached_state:
+                    loaded_data["freqs"] = cached_state.get("freqs", []) or []
+                    loaded_data["mags"] = cached_state.get("mags", []) or []
+                    loaded_data["phases"] = cached_state.get("phases", []) or []
+                    loaded_data["coherences"] = cached_state.get("coherences", []) or []
+                    loaded_data["raw_ir"] = cached_state.get("raw_ir", []) or []
+                    loaded_data["h"] = cached_state.get("h", None)
+
+                def persist_autofir_state():
+                    def _to_float(entry_widget, default):
+                        try:
+                            return float(entry_widget.get())
+                        except Exception:
+                            return default
+
+                    state = {
+                        "mode": mode_var.get(),
+                        "max_boost_db": _to_float(ent_max_gain, 6.0),
+                        "max_cut_db": _to_float(ent_min_gain, -12.0),
+                        "min_freq_hz": _to_float(ent_min_freq, 60.0),
+                        "max_freq_hz": _to_float(ent_max_freq, 16000.0),
+                        "smoothing": smoothing_var.get(),
+                        "coherent_weighting": int(coh_var.get()),
+                        "bypass": int(bypass_var.get()),
+                        "taps_count": int(len(loaded_data["h"]) if loaded_data.get("h") is not None else taps_count_val),
+                        "freqs": loaded_data.get("freqs", []),
+                        "mags": loaded_data.get("mags", []),
+                        "phases": loaded_data.get("phases", []),
+                        "coherences": loaded_data.get("coherences", []),
+                        "raw_ir": loaded_data.get("raw_ir", []),
+                        "h": loaded_data.get("h", None),
+                    }
+                    self.update_autofir_cache(target_id, state)
+
+                def redraw_graph():
+                    canvas_graph.delete("all")
+                    w = canvas_graph.winfo_width()
+                    h = canvas_graph.winfo_height()
+                    if w <= 1: w = 700
+                    if h <= 1: h = 400
+                    
+                    margin_left = 50
+                    margin_right = 50
+                    margin_top = 30
+                    margin_bottom = 30
+                    
+                    log_min = math.log10(20)
+                    log_max = math.log10(20000)
+                    
+                    def f_to_x(freq):
+                        lf = math.log10(max(20.0, min(20000.0, freq)))
+                        pct = (lf - log_min) / (log_max - log_min)
+                        return margin_left + pct * (w - margin_left - margin_right)
+                        
+                    def mag_to_y(db):
+                        clipped = max(-30.0, min(20.0, db))
+                        return margin_top + (20.0 - clipped) / 50.0 * (h - margin_top - margin_bottom)
+                        
+                    def phase_to_y(deg):
+                        # Wrap to -180..180
+                        deg_wrap = ((deg + 180) % 360 + 360) % 360 - 180
+                        return margin_top + (180.0 - deg_wrap) / 360.0 * (h - margin_top - margin_bottom)
+                    
+                    # Draw grid
+                    iso_ticks = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+                    for tick in iso_ticks:
+                        x = f_to_x(tick)
+                        canvas_graph.create_line(x, margin_top, x, h - margin_bottom, fill="#2a2a2a", dash=(2, 2))
+                        lbl_txt = f"{tick/1000:.1f}k" if tick >= 1000 else f"{int(tick)}"
+                        canvas_graph.create_text(x, h - margin_bottom + 12, text=lbl_txt, fill="#888888", font=("Arial", 8))
+                        
+                    for db in range(-30, 21, 10):
+                        y = mag_to_y(db)
+                        canvas_graph.create_line(margin_left, y, w - margin_right, y, fill="#2a2a2a", dash=(2, 2))
+                        canvas_graph.create_text(margin_left - 15, y, text=f"{db}", fill="#888888", font=("Arial", 8))
+                        
+                    for deg in [-180, -90, 0, 90, 180]:
+                        y = phase_to_y(deg)
+                        canvas_graph.create_text(w - margin_right + 15, y, text=f"{deg}°", fill="#888888", font=("Arial", 8))
+                        
+                    canvas_graph.create_rectangle(margin_left, margin_top, w - margin_right, h - margin_bottom, outline="#444444")
+                    
+                    if not loaded_data["freqs"]:
+                        canvas_graph.create_text(w/2, h/2, text="No Data Imported. Load Smaart TXT or WAV file.", fill="#666666", font=("Arial", 11, "bold"))
+                        return
+                    
+                    # 1. Speaker Original Mag (Kuning)
+                    pts_spk = []
+                    for f, m in zip(loaded_data["freqs"], loaded_data["mags"]):
+                        if m is not None:
+                            pts_spk.append((f_to_x(f), mag_to_y(m)))
+                    if len(pts_spk) > 1:
+                        canvas_graph.create_line(pts_spk, fill="#FFFF00", width=2)
+                        
+                    # 2. Speaker Original Phase (Kuning putus-putus)
+                    pts_spk_p = []
+                    for f, p in zip(loaded_data["freqs"], loaded_data["phases"]):
+                        if p is not None:
+                            pts_spk_p.append((f_to_x(f), phase_to_y(p)))
+                    if len(pts_spk_p) > 1:
+                        canvas_graph.create_line(pts_spk_p, fill="#888800", width=1, dash=(3, 3))
+                        
+                    # If we have generated FIR
+                    if loaded_data["h"] is not None:
+                        fs_val = 48000
+                        taps_count = len(loaded_data["h"])
+                        center = (taps_count - 1) / 2
+                        
+                        # Calculate DTFT of FIR h at target frequencies
+                        fir_mags_db = []
+                        fir_phases_deg = []
+                        import numpy as np
+                        
+                        h_arr = np.array(loaded_data["h"])
+                        for f in loaded_data["freqs"]:
+                            omega = 2 * np.pi * f / fs_val
+                            # DTFT
+                            n_indices = np.arange(taps_count)
+                            complex_sum = np.sum(h_arr * np.exp(-1j * omega * n_indices))
+                            
+                            magnitude = np.abs(complex_sum)
+                            fir_mags_db.append(20 * np.log10(magnitude + 1e-12))
+                            
+                            ph = np.angle(complex_sum) + (omega * center)
+                            ph = (ph + np.pi) % (2 * np.pi) - np.pi
+                            fir_phases_deg.append(ph * 180.0 / np.pi)
+                            
+                        # Smooth
+                        sm_val = cb_smoothing.get()
+                        fraction = 0
+                        if "48" in sm_val: fraction = 48
+                        elif "24" in sm_val: fraction = 24
+                        elif "12" in sm_val: fraction = 12
+                        elif "3" in sm_val: fraction = 3
+                        
+                        def smooth_data(freqs, data_db, frac):
+                            if frac == 0: return data_db
+                            smoothed = []
+                            for i, fc in enumerate(freqs):
+                                flow = fc * (2.0 ** (-1.0 / (2.0 * frac)))
+                                fhigh = fc * (2.0 ** (1.0 / (2.0 * frac)))
+                                sum_lin = 0.0
+                                count = 0
+                                for j, f in enumerate(freqs):
+                                    if flow <= f <= fhigh:
+                                        sum_lin += 10.0 ** (data_db[j] / 20.0)
+                                        count += 1
+                                    if f > fhigh: break
+                                if count > 0:
+                                    smoothed.append(20.0 * math.log10(sum_lin / count))
+                                else:
+                                    smoothed.append(data_db[i])
+                            return smoothed
+                            
+                        smoothed_speaker = smooth_data(loaded_data["freqs"], loaded_data["mags"], fraction)
+                        smoothed_fir = smooth_data(loaded_data["freqs"], fir_mags_db, fraction)
+                        
+                        # 3. FIR Counter EQ (Biru)
+                        pts_fir = []
+                        for f, m in zip(loaded_data["freqs"], smoothed_fir):
+                            pts_fir.append((f_to_x(f), mag_to_y(m)))
+                        if len(pts_fir) > 1:
+                            canvas_graph.create_line(pts_fir, fill="#00AAFF", width=2)
+                            
+                        # 4. Hasil Akhir / Sum DSP (Hijau)
+                        pts_sum = []
+                        for f, ms, mf in zip(loaded_data["freqs"], smoothed_speaker, smoothed_fir):
+                            pts_sum.append((f_to_x(f), mag_to_y(ms + mf)))
+                        if len(pts_sum) > 1:
+                            canvas_graph.create_line(pts_sum, fill="#00FF00", width=2)
+                            
+                        # 5. Phase Hasil Akhir (Hijau putus-putus)
+                        pts_sum_p = []
+                        for f, ps, pf in zip(loaded_data["freqs"], loaded_data["phases"], fir_phases_deg):
+                            pts_sum_p.append((f_to_x(f), phase_to_y(ps + pf)))
+                        if len(pts_sum_p) > 1:
+                            canvas_graph.create_line(pts_sum_p, fill="#008800", width=1, dash=(3, 3))
+                            
+                        # 6. Coherence (Merah)
+                        pts_coh = []
+                        for f, c in zip(loaded_data["freqs"], loaded_data["coherences"]):
+                            if c is not None:
+                                pts_coh.append((f_to_x(f), margin_top + (1.0 - c) * (h - margin_top - margin_bottom)))
+                        if len(pts_coh) > 1:
+                            canvas_graph.create_line(pts_coh, fill="#FF3333", width=1, dash=(2, 2))
+
+                canvas_graph.bind("<Configure>", lambda e: redraw_graph())
+                
+                # Fetch DSP taps parameter index 3 to update UI Taps label
+                taps_count_val = int(cached_state.get("taps_count", 512))
+                if 3 in current_vals:
+                    taps_count_val = int(current_vals[3])
+                lbl_fir_info.config(text=f"Sample Rate: 48000 Hz\nFIR Taps: {taps_count_val}")
+                
+                def import_fir_file():
+                    filepath = filedialog.askopenfilename(title="Select Measurement / IR File", filetypes=[("Measurement Files", "*.txt *.wav"), ("All Files", "*.*")], parent=popup)
+                    if not filepath: return
+                    
                     try:
+                        import numpy as np
                         if filepath.lower().endswith(".txt"):
                             with open(filepath, "r") as f:
                                 lines = f.readlines()
-                        
-                            is_smaart = any("Magnitude (dB)" in line for line in lines[:15])
-                        
-                            if is_smaart:
-                                import numpy as np
-                                freqs, mags, phases = [], [], []
-                                for line in lines:
-                                    parts = line.strip().split('\t')
-                                    if len(parts) >= 3:
-                                        try:
-                                            f_val = float(parts[0])
-                                            m_val = float(parts[1])
-                                            p_val = float(parts[2])
+                            
+                            is_smaart = any("Magnitude (dB)" in line or "POLY-SINGLE" in line for line in lines[:15])
+                            
+                            freqs, mags, phases, coherences = [], [], [], []
+                            for line in lines:
+                                l = line.strip()
+                                if not l or l.startswith('[') or l[0].isalpha():
+                                    continue
+                                parts = l.split('\t')
+                                if len(parts) < 2:
+                                    parts = l.split()
+                                if len(parts) >= 2:
+                                    try:
+                                        f_val = float(parts[0])
+                                        m_val = None if parts[1] == '*' else float(parts[1])
+                                        p_val = None if (len(parts) > 2 and parts[2] == '*') else (float(parts[2]) if len(parts) > 2 else 0.0)
+                                        c_val = None if (len(parts) > 3 and parts[3] == '*') else (float(parts[3]) if len(parts) > 3 else 1.0)
                                         
+                                        if f_val >= 20.0 and f_val <= 20000.0:
                                             freqs.append(f_val)
-                                            mags.append(m_val)
-                                            phases.append(p_val)
-                                        except ValueError:
-                                            pass
+                                            mags.append(m_val if m_val is not None else -80.0)
+                                            phases.append(p_val if p_val is not None else 0.0)
+                                            coherences.append(c_val if c_val is not None else 1.0)
+                                    except ValueError:
+                                        pass
                                         
-                                if len(freqs) > 10:
-                                    taps_count = 512
-                                    if 3 in ui_elements:
-                                        try: taps_count = int(float(ui_elements[3]['ent'].get()))
-                                        except: pass
-                                    if taps_count < 64: taps_count = 64
-                                    if taps_count > 512: taps_count = 512
-                                
-                                    N = 4096
-                                    linear_freqs = np.linspace(0, 24000, N // 2 + 1)
-                                    mags_interp = np.interp(linear_freqs, freqs, mags, left=mags[0], right=mags[-1])
-                                    phases_interp = np.interp(linear_freqs, freqs, phases, left=phases[0], right=phases[-1])
-                                
-                                    A = 10 ** (mags_interp / 20.0)
-                                    phi = phases_interp * np.pi / 180.0
-                                    Z = A * np.exp(1j * phi)
-                                
-                                    ir = np.fft.irfft(Z)
-                                
-                                    peak_idx = np.argmax(np.abs(ir))
-                                    shift = (taps_count // 2) - peak_idx
-                                    ir_rolled = np.roll(ir, shift)
-                                
-                                    window = np.hanning(taps_count)
-                                    final_taps = ir_rolled[:taps_count] * window
-                                    taps = final_taps.tolist()
+                            if freqs:
+                                loaded_data["freqs"] = freqs
+                                loaded_data["mags"] = mags
+                                loaded_data["phases"] = phases
+                                loaded_data["coherences"] = coherences
+                                loaded_data["raw_ir"] = []
+                                loaded_data["h"] = None
+                                messagebox.showinfo("Import Success", f"Successfully loaded {len(freqs)} Smaart frequency points!", parent=popup)
                             else:
-                                for line in lines:
-                                    try: taps.append(float(line.strip()))
-                                    except: pass
+                                raise ValueError("No valid frequency points parsed.")
                                 
                         elif filepath.lower().endswith(".wav"):
                             import wave, struct
                             with wave.open(filepath, 'rb') as w:
+                                fs_wav = w.getframerate()
                                 n_frames = w.getnframes()
                                 sample_width = w.getsampwidth()
                                 num_channels = w.getnchannels()
                                 frames = w.readframes(n_frames)
-                            
-                                for i in range(n_frames):
+                                
+                                raw_wav = []
+                                for i in range(min(n_frames, 2048)):
                                     offset = i * num_channels * sample_width
-                                    if sample_width == 2: # 16-bit
-                                        val = struct.unpack_from('<h', frames, offset)[0]
-                                        taps.append(val / 32768.0)
-                                    elif sample_width == 4: # 32-bit float
+                                    if sample_width == 2:
+                                        val = struct.unpack_from('<h', frames, offset)[0] / 32768.0
+                                    elif sample_width == 4:
                                         val = struct.unpack_from('<f', frames, offset)[0]
-                                        taps.append(val)
+                                    else:
+                                        val = 0.0
+                                    raw_wav.append(val)
+                                    
+                            if raw_wav:
+                                # Perform DTFT at 1000 log-points
+                                log_freqs = np.logspace(np.log10(20), np.log10(fs_wav/2 - 1), 1000)
+                                mags = []
+                                phases = []
+                                cohs = [1.0] * len(log_freqs)
+                                center = (len(raw_wav) - 1) / 2
+                                for f in log_freqs:
+                                    omega = 2 * np.pi * f / fs_wav
+                                    n_indices = np.arange(len(raw_wav))
+                                    c_sum = np.sum(np.array(raw_wav) * np.exp(-1j * omega * n_indices))
+                                    mags.append(20 * np.log10(np.abs(c_sum) + 1e-12))
+                                    ph = np.angle(c_sum) + (omega * center)
+                                    ph = (ph + np.pi) % (2 * np.pi) - np.pi
+                                    phases.append(ph * 180.0 / np.pi)
+                                    
+                                loaded_data["freqs"] = log_freqs.tolist()
+                                loaded_data["mags"] = mags
+                                loaded_data["phases"] = phases
+                                loaded_data["coherences"] = cohs
+                                loaded_data["raw_ir"] = raw_wav
+                                loaded_data["h"] = None
+                                messagebox.showinfo("Import Success", f"Successfully loaded WAV IR file (Sample Rate: {fs_wav} Hz)", parent=popup)
+                                
+                        # Run AutoFIR calculation
+                        calculate_autofir_normalizer()
                     except Exception as e:
-                        messagebox.showerror("Parse Error", f"Failed to parse file:\n{e}", parent=popup)
+                        messagebox.showerror("Import Error", f"Failed to load file:\n{e}", parent=popup)
+                        
+                def calculate_autofir_normalizer():
+                    if cb_mode.get() == "Upload Raw IR":
+                        if loaded_data["raw_ir"]:
+                            loaded_data["h"] = loaded_data["raw_ir"][:taps_count_val]
+                            redraw_graph()
+                            persist_autofir_state()
                         return
-                    
-                    if not taps:
-                        messagebox.showerror("Error", "No valid coefficients found in file!", parent=popup)
+                        
+                    if not loaded_data["freqs"]:
                         return
+                        
+                    import numpy as np
                     
-                    # For non-smaart files, we truncate to UI length
-                    taps_count = 512
-                    if 3 in ui_elements:
-                        try: taps_count = int(float(ui_elements[3]['ent'].get()))
-                        except: pass
-                    if len(taps) > taps_count:
-                        taps = taps[:taps_count]
+                    # Fetch limits
+                    try: max_g = float(ent_max_gain.get())
+                    except: max_g = 6.0
+                    try: min_g = float(ent_min_gain.get())
+                    except: min_g = -12.0
+                    try: min_f = float(ent_min_freq.get())
+                    except: min_f = 60.0
+                    try: max_f = float(ent_max_freq.get())
+                    except: max_f = 16000.0
                     
+                    fs_val = 48000
+                    taps_count = taps_count_val
+                    M = taps_count - 1
+                    center = M / 2
+                    
+                    target_mag_linear = np.ones(taps_count // 2 + 1)
+                    target_phase_rad = np.zeros(taps_count // 2 + 1)
+                    
+                    # Interp helpers
+                    freqs_arr = np.array(loaded_data["freqs"])
+                    mags_arr = np.array(loaded_data["mags"])
+                    phases_arr = np.array(loaded_data["phases"])
+                    cohs_arr = np.array(loaded_data["coherences"])
+                    
+                    for k in range(taps_count // 2 + 1):
+                        f = k * fs_val / taps_count
+                        if min_f <= f <= max_f:
+                            # Interp in log space
+                            log_f = np.log10(f)
+                            log_freqs_arr = np.log10(freqs_arr)
+                            mag_val = np.interp(log_f, log_freqs_arr, mags_arr)
+                            phase_val = np.interp(log_f, log_freqs_arr, phases_arr)
+                            coh_val = np.interp(log_f, log_freqs_arr, cohs_arr)
+                            
+                            inv_db = -mag_val
+                            inv_phase = -phase_val * (np.pi / 180.0)
+                            
+                            if coh_var.get() == 1:
+                                inv_db = inv_db * coh_val
+                                inv_phase = inv_phase * coh_val
+                                
+                            inv_db = np.clip(inv_db, min_g, max_g)
+                            
+                            target_mag_linear[k] = 10.0 ** (inv_db / 20.0)
+                            target_phase_rad[k] = inv_phase
+                            
+                    # Mixed Phase Inverse Complex IDFT
+                    h = np.zeros(taps_count)
+                    for n in range(taps_count):
+                        sum_val = target_mag_linear[0] * np.cos(target_phase_rad[0])
+                        for k in range(1, taps_count // 2):
+                            sum_val += 2 * target_mag_linear[k] * np.cos((2 * np.pi * k * (n - center) / taps_count) + target_phase_rad[k])
+                        if taps_count % 2 == 0:
+                            sum_val += target_mag_linear[taps_count // 2] * np.cos(np.pi * (n - center) + target_phase_rad[taps_count // 2])
+                            
+                        window_val = 0.54 - 0.46 * np.cos(2 * np.pi * n / M)
+                        h[n] = (sum_val / taps_count) * window_val
+                        
+                    loaded_data["h"] = h.tolist()
+                    redraw_graph()
+                    persist_autofir_state()
+                    
+                def schedule_autofir_recalc(event=None):
+                    persist_autofir_state()
+                    if recalc_after_id["id"] is not None:
+                        popup.after_cancel(recalc_after_id["id"])
+                    def _run_recalc():
+                        recalc_after_id["id"] = None
+                        calculate_autofir_normalizer()
+                    recalc_after_id["id"] = popup.after(120, _run_recalc)
+
+                def upload_generated_taps():
+                    if loaded_data["h"] is None:
+                        # Fallback try recalculating
+                        calculate_autofir_normalizer()
+                        if loaded_data["h"] is None:
+                            messagebox.showerror("Upload Error", "No generated coefficients found! Please import a file first.", parent=popup)
+                            return
+                            
+                    if not self.serial_port or not self.serial_port.is_open:
+                        messagebox.showerror("Error", "Not connected!", parent=popup)
+                        return
+                        
+                    taps = loaded_data["h"]
                     import time
+                    self.lbl_status.config(text="Status: Uploading AutoFIR taps...", fg="orange")
+                    self.root.update()
                     try:
-                        # 1. Set total length
+                        # 1. Set taps length parameter (index 3)
                         self.serial_port.write(f'{{"id":{target_id},"p":3,"v":{len(taps)}}}\n'.encode('ascii'))
                         time.sleep(0.05)
-                    
+                        
                         # 2. Upload taps sequentially
                         for i, val in enumerate(taps):
                             self.serial_port.write(f'{{"id":{target_id},"p":0,"v":{i}}}\n'.encode('ascii'))
                             self.serial_port.write(f'{{"id":{target_id},"p":1,"v":{val:.6f}}}\n'.encode('ascii'))
                             time.sleep(0.005) # Prevent serial overflow
-                        
-                        # 3. Commit swap
+                            
+                        # 3. Commit swap (parameter index 2)
                         self.serial_port.write(f'{{"id":{target_id},"p":2,"v":1.0}}\n'.encode('ascii'))
-                        messagebox.showinfo("Success", f"Uploaded {len(taps)} FIR Taps successfully!", parent=popup)
+                        self.lbl_status.config(text="Status: FIR taps uploaded!", fg="green")
+                        messagebox.showinfo("Success", f"Uploaded {len(taps)} AutoFIR Taps successfully to DSP!", parent=popup)
                     except Exception as e:
-                        messagebox.showerror("Upload Error", f"Serial failed:\n{e}", parent=popup)
+                        messagebox.showerror("Upload Error", f"Serial write failed:\n{e}", parent=popup)
+                        
+                if loaded_data["freqs"]:
+                    if loaded_data["h"] is None:
+                        calculate_autofir_normalizer()
+                    else:
+                        redraw_graph()
+                    persist_autofir_state()
 
-                tk.Button(btn_frame, text="Upload IR (TXT/WAV)", command=upload_ir, bg="#FFD700", font=("Arial", 10, "bold")).pack(side="right", padx=10)
+                tk.Button(
+                    fir_btn_frame,
+                    text="Import FIR File",
+                    command=import_fir_file,
+                    bg="#A0C4FF",
+                    font=("Arial", 10, "bold")
+                ).pack(fill="x", pady=(0, 6))
+
+                tk.Button(
+                    fir_btn_frame,
+                    text="Recalculate FIR",
+                    command=calculate_autofir_normalizer,
+                    bg="#FFD166",
+                    font=("Arial", 10, "bold")
+                ).pack(fill="x", pady=(0, 6))
+
+                for ent_widget in (ent_max_gain, ent_min_gain, ent_min_freq, ent_max_freq):
+                    ent_widget.bind("<Return>", schedule_autofir_recalc)
+                    ent_widget.bind("<FocusOut>", schedule_autofir_recalc)
+
+                tk.Button(
+                    fir_btn_frame,
+                    text="Upload FIR Taps",
+                    command=upload_generated_taps,
+                    bg="#A0E8AF",
+                    font=("Arial", 10, "bold")
+                ).pack(fill="x")
+
+                # Bind combobox updates to recalculating & redrawing
+                cb_smoothing.bind("<<ComboboxSelected>>", lambda e: (persist_autofir_state(), redraw_graph()))
+                cb_mode.bind("<<ComboboxSelected>>", lambda e: (persist_autofir_state(), schedule_autofir_recalc()))
                 
+            # Auto-fit window to content so knobs/buttons are visible without manual resize
+            popup.update_idletasks()
+            try:
+                req_w = popup.winfo_reqwidth() + 40
+                req_h = popup.winfo_reqheight() + 40
+                if target_mod.get("type") == "FIR":
+                    req_w = max(req_w, 1100)
+                    req_h = max(req_h, 760)
+                else:
+                    req_w = max(req_w, 720)
+                    req_h = max(req_h, 520)
+
+                max_w = max(700, popup.winfo_screenwidth() - 80)
+                max_h = max(500, popup.winfo_screenheight() - 120)
+                final_w = min(req_w, max_w)
+                final_h = min(req_h, max_h)
+                popup.geometry(f"{final_w}x{final_h}")
+                popup.minsize(min(req_w, max_w), min(req_h, max_h))
+                popup.resizable(True, True)
+            except tk.TclError:
+                pass
+
     def on_module_changed(self, event):
         idx = self.cb_module.current()
         if idx < 0: return
