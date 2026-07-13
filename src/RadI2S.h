@@ -94,6 +94,7 @@ private:
     // Internal Block Processing Buffers
     int _bufferLen;
     int _bitsPerSample;
+    int _sampleRate;
     float* _leftBuffer;
     float* _rightBuffer;
     uint8_t* _dmaBuffer;

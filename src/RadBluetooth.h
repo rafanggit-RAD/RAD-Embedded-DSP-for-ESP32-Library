@@ -37,12 +37,48 @@ namespace RadDSP {
          */
         bool readAudio(float* leftBuffer, float* rightBuffer, int length, uint32_t systemSampleRate = 48000);
 
+        /**
+         * @brief Check if Bluetooth A2DP Sink is connected to a source
+         * @return true if connected, false otherwise
+         */
+        bool isConnected() const;
+
+        /**
+         * @brief Get the name of the connected Bluetooth device
+         * @return Device name string, or "None" if not connected
+         */
+        const char* getConnectedDeviceName() const;
+
+        /**
+         * @brief Get the MAC address of the connected Bluetooth device
+         * @return MAC address string, or "00:00:00:00:00:00" if not connected
+         */
+        const char* getConnectedDeviceMac() const;
+
+        /**
+         * @brief Get the current fill level of the Bluetooth ring buffer in bytes.
+         * @return Number of bytes currently in the buffer, or 0 if not initialized.
+         */
+        static size_t getRingBufferFillBytes();
+
+        /**
+         * @brief Get the total capacity of the Bluetooth ring buffer in bytes.
+         * @return Capacity in bytes, or 0 if not initialized.
+         */
+        static size_t getRingBufferCapacity();
+
     private:
         static void a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
         static void a2d_data_cb(const uint8_t *data, uint32_t len);
+        static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
+        
+        static char _connectedName[64];
+        static char _connectedMac[20];
         
         static RingbufHandle_t _ringBuf;
+        static size_t _ringBufSize;
         static volatile uint32_t _bluetoothSampleRate;
+        static volatile bool _connected;
         static esp_bd_addr_t _lastBda;
         static bool _hasLastBda;
         bool _initialized;

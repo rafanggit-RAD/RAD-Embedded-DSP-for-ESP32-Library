@@ -5,7 +5,7 @@ namespace RadDSP {
 
 Meter::Meter() : _peakDb(-80.0f), _decayFactor(0.95f), _currentPeak(0.0f) {}
 
-void Meter::process(const float* input, int length) {
+float Meter::process(const float* input, int length, int mode) {
     float localMax = 0.0f;
     for (int i = 0; i < length; i++) {
         float absVal = fabsf(input[i]);
@@ -30,12 +30,18 @@ void Meter::process(const float* input, int length) {
 
     // Batasi nilai agar berada di range aman desibel
     if (_peakDb < -80.0f) _peakDb = -80.0f;
-    if (_peakDb > 6.0f)  _peakDb = 6.0f; // Beri ruang toleransi clipping +6dB
+    if (_peakDb > 6.0f)  _peakDb = 6.0f;
+
+    // Kembalikan nilai puncak berdasarkan mode yang dipilih
+    if (mode == 0) {
+        return _currentPeak; // Linear
+    } else {
+        return _peakDb;      // dBFS
+    }
 }
 
 void Meter::setParameter(uint8_t paramID, float value) {
     if (paramID == 1) {
-        // ParamID 1: Mengatur kecepatan redam (decay) meter
         _decayFactor = value;
         if (_decayFactor < 0.5f) _decayFactor = 0.5f;
         if (_decayFactor > 0.999f) _decayFactor = 0.999f;
@@ -44,7 +50,6 @@ void Meter::setParameter(uint8_t paramID, float value) {
 
 float Meter::getParameter(uint8_t paramID) {
     if (paramID == 0) {
-        // ParamID 0: Mengembalikan nilai level desibel (dBFS) saat ini untuk dibaca GUI
         return _peakDb;
     } else if (paramID == 1) {
         return _decayFactor;

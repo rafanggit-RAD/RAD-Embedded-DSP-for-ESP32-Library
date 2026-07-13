@@ -13,6 +13,7 @@ namespace RadDSP {
         // paramID: 0=Type, 1=Freq, 2=Gain, 3=Q (Tergantung implementasi modul)
         virtual void setParameter(uint8_t paramID, float value) = 0;
         virtual float getParameter(uint8_t paramID) = 0;
+        virtual const char* getType() { return "Unknown"; }
     };
 
     /**
@@ -27,7 +28,7 @@ namespace RadDSP {
          * @param id ID unik untuk modul ini (0-255)
          * @param module Pointer ke objek filter (misal &eq1)
          */
-        void attach(uint8_t id, Controllable* module);
+        void attach(uint8_t id, Controllable* module, const char* name = nullptr);
 
         /**
          * @brief Menyimpan Blueprint/Schema topologi DSP (JSON)
@@ -69,9 +70,29 @@ namespace RadDSP {
          */
         void executeCommand(uint8_t id, uint8_t paramID, float value);
 
+        /**
+         * @brief Menautkan dua modul secara dua arah agar parameternya tersinkronisasi
+         */
+        void link(Controllable* m1, Controllable* m2);
+
+        /**
+         * @brief Mengatur metrik sistem untuk telemetri dinamis
+         */
+        void setSystemMetrics(int sampleRate, int bitDepth);
+
+        /**
+         * @brief Mendapatkan persentase load CPU untuk Core 0 atau 1
+         */
+        inline float getCpuLoad(uint8_t coreID) { return (coreID < 2) ? _dspLoad[coreID] : -1.0f; }
+
     private:
         Controllable* _modules[256];
+        const char* _moduleNames[256];
+        int16_t _linkID[256];
+        int _sampleRate;
+        int _bitDepth;
         const char* _schemaJson;
+        void printParamsForType(const char* mType);
         bool _serialEnabled;
         char _serialBuffer[128];
         uint8_t _bufLen;
@@ -79,6 +100,7 @@ namespace RadDSP {
         float _dspLoad[2];
     };
 
+    extern Controller* _globalController;
 }
 
 #endif

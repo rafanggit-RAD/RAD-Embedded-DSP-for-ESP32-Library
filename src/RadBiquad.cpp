@@ -138,7 +138,7 @@ void Biquad::setParameter(uint8_t paramID, float value) {
     if (paramID == 0) _type = (uint8_t)value;
     else if (paramID == 1) _freq = value;
     else if (paramID == 2) _gain = value;
-    else if (paramID == 3) _q = value;
+    else if (paramID == 3) _q = (value < 0.01f) ? 0.01f : value;
 
     // Recalculate
     if (_type == 0) setLowpass(_freq, _q);

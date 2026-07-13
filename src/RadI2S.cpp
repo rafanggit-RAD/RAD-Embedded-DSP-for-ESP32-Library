@@ -1,14 +1,18 @@
 #include "RadI2S.h"
 #include <rom/gpio.h>
+#include <esp_heap_caps.h>
 
 #include "RadDSP.h" // Untuk mendapatkan akses global systemSampleRate
+#include "RadControl.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace RadDSP {
 
 float systemSampleRate = 48000.0f;
 
 I2S::I2S() : _port(I2S_NUM_0), _initialized(false), 
-             _bufferLen(0), _bitsPerSample(16), 
+             _bufferLen(0), _bitsPerSample(16), _sampleRate(48000),
              _leftBuffer(nullptr), _rightBuffer(nullptr), _dmaBuffer(nullptr) {
 }
 
@@ -25,6 +29,7 @@ bool I2S::begin(i2s_port_t port, int sampleRate, int bitsPerSample, bool isMaste
     if (_initialized) return true; // Already initialized
 
     _port = port;
+    _sampleRate = sampleRate;
     RadDSP::setSampleRate((float)sampleRate);
 
     i2s_mode_t mode = (i2s_mode_t)(isMaster ? I2S_MODE_MASTER : I2S_MODE_SLAVE);
@@ -111,13 +116,18 @@ bool I2S::begin(i2s_port_t port, int sampleRate, int bitsPerSample, bool isMaste
     
     // DMA buffer needs space for 2 channels (L+R), and bytes per sample
     int bytesPerSample = (_bitsPerSample == 32 || _bitsPerSample == 24) ? 4 : 2;
-    _dmaBuffer = (uint8_t*)malloc(_bufferLen * 2 * bytesPerSample);
+    _dmaBuffer = (uint8_t*)heap_caps_malloc(_bufferLen * 2 * bytesPerSample, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
 
     if (!_leftBuffer || !_rightBuffer || !_dmaBuffer) {
         // Fallback or error handling
     }
 
     _initialized = true;
+
+    if (_globalController) {
+        _globalController->setSystemMetrics(sampleRate, bitsPerSample);
+    }
+
     return true;
 }
 
@@ -145,24 +155,43 @@ bool I2S::readBlock() {
             _rightBuffer[i] = (float)ptr[i * 2 + 1] * 3.0517578125e-5f;
         }
     }
+    
+    if (_globalController) {
+        _globalController->markProcessStart(xPortGetCoreID());
+    }
     return true;
 }
 
 void I2S::writeBlock() {
+    if (_globalController) {
+        _globalController->markProcessEnd(xPortGetCoreID(), _bufferLen, _sampleRate);
+    }
     if (!_initialized || !_dmaBuffer) return;
     
     // Convert float -1.0 to 1.0 back to raw DMA data
     if (_bitsPerSample == 32 || _bitsPerSample == 24) {
         int32_t* ptr = (int32_t*)_dmaBuffer;
         for (int i = 0; i < _bufferLen; i++) {
-            ptr[i * 2] = (int32_t)(_leftBuffer[i] * 2147483647.0f);
-            ptr[i * 2 + 1] = (int32_t)(_rightBuffer[i] * 2147483647.0f);
+            float l = _leftBuffer[i];
+            float r = _rightBuffer[i];
+            if (l > 1.0f) l = 1.0f;
+            else if (l < -1.0f) l = -1.0f;
+            if (r > 1.0f) r = 1.0f;
+            else if (r < -1.0f) r = -1.0f;
+            ptr[i * 2] = (int32_t)(l * 2147483520.0f);
+            ptr[i * 2 + 1] = (int32_t)(r * 2147483520.0f);
         }
     } else {
         int16_t* ptr = (int16_t*)_dmaBuffer;
         for (int i = 0; i < _bufferLen; i++) {
-            ptr[i * 2] = (int16_t)(_leftBuffer[i] * 32767.0f);
-            ptr[i * 2 + 1] = (int16_t)(_rightBuffer[i] * 32767.0f);
+            float l = _leftBuffer[i];
+            float r = _rightBuffer[i];
+            if (l > 1.0f) l = 1.0f;
+            else if (l < -1.0f) l = -1.0f;
+            if (r > 1.0f) r = 1.0f;
+            else if (r < -1.0f) r = -1.0f;
+            ptr[i * 2] = (int16_t)(l * 32767.0f);
+            ptr[i * 2 + 1] = (int16_t)(r * 32767.0f);
         }
     }
 

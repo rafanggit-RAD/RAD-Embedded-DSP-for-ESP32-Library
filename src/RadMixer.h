@@ -21,6 +21,7 @@ namespace RadDSP {
                 _muls[i] = 1.0f;
             }
             memset(_outBuf, 0, sizeof(_outBuf));
+            snprintf(_typeStr, sizeof(_typeStr), "Mixer<%d>", N);
         }
 
         void setParameter(uint8_t paramID, float value) override {
@@ -39,6 +40,8 @@ namespace RadDSP {
             return 0.0f;
         }
 
+        const char* getType() override { return _typeStr; }
+
         void updateMul(int ch) {
             _muls[ch] = _mutes[ch] ? 0.0f : powf(10.0f, _gainsDB[ch] / 20.0f);
         }
@@ -52,7 +55,7 @@ namespace RadDSP {
             const float* inputList[N] = { inputs... };
 
             // Bersihkan buffer output internal
-            int safeLength = length > 256 ? 256 : length;
+            int safeLength = length > 1024 ? 1024 : length;
             memset(_outBuf, 0, safeLength * sizeof(float));
 
             // Lakukan pencampuran dan akumulasi gain per channel
@@ -72,7 +75,8 @@ namespace RadDSP {
         float _gainsDB[N];
         bool _mutes[N];
         float _muls[N];
-        float _outBuf[256];
+        float _outBuf[1024];
+        char _typeStr[16];
     };
 
     /**
@@ -88,6 +92,7 @@ namespace RadDSP {
                 _gainsDB[i] = 0.0f;
                 _muls[i] = 1.0f;
             }
+            snprintf(_typeStr, sizeof(_typeStr), "Splitter<%d>", M);
         }
 
         void setParameter(uint8_t paramID, float value) override {
@@ -102,6 +107,8 @@ namespace RadDSP {
             return 0.0f;
         }
 
+        const char* getType() override { return _typeStr; }
+
         #pragma GCC optimize ("O3")
         template<typename... Args>
         void process(int length, const float* input, Args... outputs) {
@@ -109,7 +116,7 @@ namespace RadDSP {
             
             // Kumpulkan output pack ke array lokal pointer
             float* outputList[M] = { outputs... };
-            int safeLength = length > 256 ? 256 : length;
+            int safeLength = length > 1024 ? 1024 : length;
 
             // Salin input ke masing-masing output dengan gain independen
             for (int ch = 0; ch < M; ch++) {
@@ -126,6 +133,7 @@ namespace RadDSP {
     private:
         float _gainsDB[M];
         float _muls[M];
+        char _typeStr[16];
     };
 }
 

@@ -19,6 +19,7 @@ public:
      */
     void setParameter(uint8_t paramID, float value) override;
     float getParameter(uint8_t paramID) override;
+    const char* getType() override { return "Biquad"; }
 
     /**
      * @brief Set as Lowpass filter

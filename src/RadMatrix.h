@@ -21,6 +21,7 @@ namespace RadDSP {
                     _gainMatrix[i][j] = 0.0f;
                 }
             }
+            snprintf(_typeStr, sizeof(_typeStr), "MatrixRouter<%d,%d>", NUM_IN, NUM_OUT);
         }
 
         /**
@@ -43,6 +44,8 @@ namespace RadDSP {
             }
             return 0.0f;
         }
+
+        const char* getType() override { return _typeStr; }
 
         void setRouteLinear(int inputIdx, int outputIdx, float linearGain) {
             if (inputIdx < NUM_IN && outputIdx < NUM_OUT) {
@@ -78,6 +81,7 @@ namespace RadDSP {
 
     private:
         float _gainMatrix[NUM_IN][NUM_OUT]; // [Input][Output]
+        char _typeStr[32];
     };
 }
 

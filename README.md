@@ -143,7 +143,7 @@ Digunakan untuk komunikasi audio dengan chip DAC/ADC hardware eksternal.
 ---
 
 #### B. Kelas `RadDSP::Bluetooth`
-Mengaktifkan penerimaan Bluetooth A2DP Sink dengan resampling asinkron Hi-Fi bawaan (Hermite Cubic ASRC).
+Mengaktifkan penerimaan Bluetooth A2DP Sink dengan resampling asinkron Hi-Fi bawaan (Hermite Cubic ASRC) serta pemantauan status koneksi secara mendalam.
 * **Inisialisasi (`setup()`):**
   ```cpp
   bt.begin("RAD-DSP-MIXER"); // Nama perangkat Bluetooth saat ditemukan HP
@@ -158,6 +158,11 @@ Mengaktifkan penerimaan Bluetooth A2DP Sink dengan resampling asinkron Hi-Fi baw
       memset(btR, 0, len * sizeof(float));
   }
   ```
+* **Method Informasi Koneksi:**
+  Pustaka menyediakan fungsi untuk meminta status detail perangkat pemancar (source/HP) yang sedang terhubung:
+  * `bt.isConnected()`: Mengembalikan nilai `true` jika HP/sumber audio terhubung, `false` jika tidak.
+  * `bt.getConnectedDeviceName()`: Mengembalikan nama perangkat HP (misal `"Galaxy S23"` atau `"None"` jika terputus).
+  * `bt.getConnectedDeviceMac()`: Mengembalikan alamat MAC Bluetooth perangkat (misal `"AA:BB:CC:11:22:33"` atau `"00:00:00:00:00:00"` jika terputus).
 
 ---
 
@@ -261,38 +266,65 @@ Matriks perutean audio mono adaptif untuk mencampur dan merutekan input apa saja
 
 ---
 
-#### I. Kelas `RadDSP::Gain`
-Blok penguat (gain) mono tunggal dengan opsi mute dan inversi fase (invert).
+#### I. Kelas `RadDSP::MonoGain` & `RadDSP::StereoGain`
+Blok penguat (gain) yang terbagi menjadi mode Mono (`MonoGain`, juga dialiaskan sebagai `Gain` untuk kompatibilitas ke belakang) dan mode Stereo (`StereoGain` yang memiliki kontrol keseimbangan saluran/Balance).
+
+##### 1. Kelas `RadDSP::MonoGain` (atau `RadDSP::Gain`)
 * **Inisialisasi & Parameter (`setup()`):**
   ```cpp
-  // Contoh inisialisasi volume 0 dB, mute tidak aktif, invert fase tidak aktif
   gain.setParameter(0, 0.0f);   // 0: Gain Volume (dB)
   gain.setParameter(1, 0.0f);   // 1: Mute (0.0f = Aktif, 1.0f = Mute)
   gain.setParameter(2, 0.0f);   // 2: Phase Invert (0.0f = Normal, 1.0f = Invert)
   ```
 * **Cara Penggunaan (`audioLoop()`):**
   ```cpp
-  // Metode 1: Out-of-Place (Input dan Output di buffer terpisah)
-  gain.process(inputBuffer, outputBuffer, len);
-
-  // Metode 2: In-Place (Hasil ditulis langsung menimpa buffer input)
+  // Metode In-Place
   gain.process(audioBuffer, len);
+  ```
+
+##### 2. Kelas `RadDSP::StereoGain`
+* **Inisialisasi & Parameter (`setup()`):**
+  ```cpp
+  stereoGain.setParameter(0, 0.0f);   // 0: Gain Volume (dB)
+  stereoGain.setParameter(1, 0.0f);   // 1: Mute (0.0f = Aktif, 1.0f = Mute)
+  stereoGain.setParameter(2, 0.0f);   // 2: Phase Invert (0.0f = Normal, 1.0f = Invert)
+  stereoGain.setParameter(3, 0.0f);   // 3: Balance (-1.0f = Kiri Penuh, 0.0f = Tengah, 1.0f = Kanan Penuh)
+  ```
+* **Cara Penggunaan (`audioLoop()`):**
+  ```cpp
+  // Metode In-Place (memproses buffer Left dan Right secara simultan)
+  stereoGain.process(leftBuffer, rightBuffer, len);
   ```
 
 ---
 
 #### J. Kelas `RadDSP::Controller`
-Pengatur protokol telemetri serial UART GUI RadStudio.
+Pengatur protokol telemetri serial UART GUI RadStudio, penautan parameter stereo, dan metrik sistem.
 * **Inisialisasi & Parameter (`setup()`):**
   ```cpp
-  dspControl.attach(1, &eqL);        // Daftarkan modul ke ID unik
-  dspControl.setSchema(dspSchema);   // Atur JSON skema perutean grafis
-  dspControl.beginSerial(115200);    // Aktifkan UART
+  dspControl.attach(1, &eqL, "EQ_Left");  // Daftarkan modul ke ID unik dengan nama
+  dspControl.setSchema(dspSchema);        // Atur JSON skema perutean grafis
+  dspControl.beginSerial(115200);         // Aktifkan UART
+  
+  // Tautkan parameter antar modul stereo (Kiri dan Kanan) secara dua arah (bidirectional link)
+  dspControl.link(&eqL, &eqR);            // Perubahan parameter pada eqL akan otomatis disinkronkan ke eqR secara real-time (dan sebaliknya)
   ```
 * **Cara Penggunaan (`audioLoop()`):**
   ```cpp
   dspControl.poll(); // Wajib dipanggil di awal audio loop untuk memproses perintah eksternal
   ```
+* **Mendapatkan Beban CPU Real-time:**
+  ```cpp
+  float cpu0Load = dspControl.getCpuLoad(0); // Mendapatkan beban CPU Core 0 (persentase 0.0f - 100.0f)
+  float cpu1Load = dspControl.getCpuLoad(1); // Mendapatkan beban CPU Core 1 (persentase 0.0f - 100.0f)
+  ```
+* **Informasi Telemetri Sistem (`id == 255`):**
+  Pustaka secara otomatis mendeteksi metrik perangkat keras dan memancarkannya ke RadStudio GUI, meliputi:
+  * CPU Load Core 0 & Core 1 (`c0`, `c1`)
+  * Sisa RAM Bebas & Total RAM (`ramF`, `ramT`)
+  * Laju Sampel & Bit Depth I2S (`sr`, `bd`)
+  * Kecepatan Jam CPU (`cpu` dalam MHz)
+  * Suhu Internal Die Chip ESP32 (`temp` dalam °C)
 
 ---
 
@@ -370,6 +402,27 @@ Pengendali pemrosesan paralel (Fork-Join Architecture) yang mengoordinasikan dua
           firL.process(pipeL, fOutL, len);
       }
   );
+  ```
+
+---
+
+#### O. Kelas `RadDSP::GraphicEQ<N>`
+Graphic Equalizer N-band stereo/mono dengan jarak pita frekuensi logaritmis otomatis dari 20 Hz hingga 20 kHz dan Q-factor otomatis teroptimasi.
+* **Inisialisasi & Parameter (`setup()`):**
+  ```cpp
+  // Contoh Equalizer Grafis 31-band (N = 31)
+  RadDSP::GraphicEQ<31> eqOutL;
+  
+  // Parameter:
+  // 0 s.d N-1: Gain Pita Ke-N (dB) (Default range: -24.0 dB s.d +24.0 dB)
+  // 100: Bypass (0.0f = Aktif, 1.0f = Bypass)
+  eqOutL.setParameter(0, 3.0f);   // Boost 3.0 dB pada pita ke-0 (20 Hz)
+  eqOutL.setParameter(100, 0.0f); // Bypass dinonaktifkan
+  ```
+* **Cara Penggunaan (`audioLoop()`):**
+  ```cpp
+  // Menghitung filter Graphic EQ in-place pada buffer audio
+  eqOutL.process(audioBuffer, len);
   ```
 
 ---
@@ -503,6 +556,13 @@ Tabel di bawah ini mendokumentasikan rentang nilai (`min`, `max`), resolusi lang
 |----------|------|-----|-----|------|------|-------------|
 | `0` | Level | -80.0 | 6.0 | — | dBFS | Canvas Bar LED (Real-time 120ms) |
 | `1` | Decay Factor | 0.5 | 0.999 | 0.001 | Decay | Knob (Lin) |
+
+#### GraphicEQ\<N\> (Graphic Equalizer N-band)
+
+| Param ID | Nama | Min | Max | Step | Unit | Tipe Widget |
+|----------|------|-----|-----|------|------|-------------|
+| `0` s.d `N-1` | Gain Band (per band) | -24.0 | 24.0 | 0.1 | dB | Knob (Horizontal Row Layout) |
+| `100` | Bypass | 0 | 1 | 1 | — | Checkbox |
 
 ---
 
@@ -1100,8 +1160,10 @@ Adaptive mono audio routing matrix to mix and route any inputs to any outputs dy
 
 ---
 
-#### H. Class `RadDSP::Gain`
-Single Mono gain block with mute and phase inversion options.
+#### H. Class `RadDSP::MonoGain` & `RadDSP::StereoGain`
+Gain block classes divided into Mono mode (`MonoGain`, also aliased as `Gain` for backward compatibility) and Stereo mode (`StereoGain` which includes channel balance control).
+
+##### 1. Class `RadDSP::MonoGain` (or `RadDSP::Gain`)
 * **Initialization & Parameters (`setup()`):**
   ```cpp
   gain.setParameter(0, 0.0f);   // 0: Gain Volume (dB)
@@ -1117,6 +1179,20 @@ Single Mono gain block with mute and phase inversion options.
   gain.process(audioBuffer, len);
   ```
 
+##### 2. Class `RadDSP::StereoGain`
+* **Initialization & Parameters (`setup()`):**
+  ```cpp
+  stereoGain.setParameter(0, 0.0f);   // 0: Gain Volume (dB)
+  stereoGain.setParameter(1, 0.0f);   // 1: Mute (0.0f = Active, 1.0f = Mute)
+  stereoGain.setParameter(2, 0.0f);   // 2: Phase Invert (0.0f = Normal, 1.0f = Inverted)
+  stereoGain.setParameter(3, 0.0f);   // 3: Balance (-1.0f = Full Left, 0.0f = Center, 1.0f = Full Right)
+  ```
+* **Usage (`audioLoop()`):**
+  ```cpp
+  // In-Place method (processes Left and Right buffers simultaneously)
+  stereoGain.process(leftBuffer, rightBuffer, len);
+  ```
+
 ---
 
 #### I. Class `RadDSP::Controller`
@@ -1130,6 +1206,11 @@ Manages the UART serial telemetry protocol for the RadStudio GUI.
 * **Usage (`audioLoop()`):**
   ```cpp
   dspControl.poll(); // Must be called periodically to process incoming external control commands
+  ```
+* **Real-time CPU Load Query:**
+  ```cpp
+  float cpu0Load = dspControl.getCpuLoad(0); // Query CPU Core 0 load (percentage 0.0f - 100.0f)
+  float cpu1Load = dspControl.getCpuLoad(1); // Query CPU Core 1 load (percentage 0.0f - 100.0f)
   ```
 
 ---

@@ -1,0 +1,49 @@
+===================================================================
+LIST KONFIGURASI PIN HARDWARE - RAD_DSP_AMP
+===================================================================
+Project: RAD_DSP_AMP
+Platform: ESP32
+Description: DSP Amplifier with PCM1754 DAC, PCM1808 ADC, OLED, 
+             Rotary Encoder, and Indicator LEDs.
+===================================================================
+
+1. ANTARMUKA AUDIO I2S (PCM1754 DAC & PCM1808 ADC)
+-------------------------------------------------------------------
+Fungsi Pin       | ESP32 Pin GPIO | Keterangan
+-------------------------------------------------------------------
+I2S_MCLK_PIN     | GPIO 0         | Master Clock
+I2S_WS_PIN       | GPIO 4         | Word Select (LRCK / Left-Right Clock)
+I2S_BCK_PIN      | GPIO 16        | Bit Clock (SCK)
+I2S_DOUT_PIN     | GPIO 17        | Data Output (ESP32 -> PCM1754 DAC)
+I2S_DIN_PIN      | GPIO 34        | Data Input (PCM1808 ADC -> ESP32)
+
+2. ANTARMUKA LAYAR OLED (I2C)
+-------------------------------------------------------------------
+Fungsi Pin       | ESP32 Pin GPIO | Keterangan
+-------------------------------------------------------------------
+OLED_SDA         | GPIO 14        | I2C Serial Data
+OLED_SCL         | GPIO 12        | I2C Serial Clock
+
+3. ROTARY ENCODER
+-------------------------------------------------------------------
+Fungsi Pin       | ESP32 Pin GPIO | Keterangan
+-------------------------------------------------------------------
+ENC_CLK          | GPIO 25        | Encoder Clock (A Channel) - Interrupt
+ENC_DT           | GPIO 26        | Encoder Data (B Channel) - Interrupt
+ENC_SW           | GPIO 27        | Encoder Switch / Button (Debounced)
+
+4. LED INDIKATOR (LEDC PWM)
+-------------------------------------------------------------------
+Fungsi Pin       | ESP32 Pin GPIO | Keterangan
+-------------------------------------------------------------------
+LED_AUDIO        | GPIO 32        | Audio Peak Indicator (PWM 5kHz, 8-bit)
+LED_BT           | GPIO 33        | Bluetooth Status Indicator (PWM 5kHz, 8-bit)
+
+===================================================================
+Catatan Penggunaan & Fitur Hardware:
+- Protokol I2S dijalankan pada Core 0 dengan sample rate 48000 Hz, 32-bit resolution.
+- Rotary Encoder menggunakan Register-level Interrupt Handler untuk presisi tinggi dan
+  menghindari cache miss panic pada ESP32.
+- Bluetooth Status LED menggunakan Breathing effect pada pin 33 saat pairing/idle dan 
+  solid ON saat terhubung.
+===================================================================

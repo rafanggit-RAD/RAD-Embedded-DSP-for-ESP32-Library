@@ -13,9 +13,9 @@ namespace RadDSP {
         Dynamics();
         ~Dynamics();
 
-        // Controllable Interface
         void setParameter(uint8_t paramID, float value) override;
         float getParameter(uint8_t paramID) override;
+        const char* getType() override { return "Dynamics"; }
 
         // Process audio block in-place
         float* process(float* buffer, int len);

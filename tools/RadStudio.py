@@ -7,6 +7,8 @@ import json
 import os
 import math
 import re
+import threading
+import time
 
 def get_param_config(module_type, param_name, param_idx):
     p_lower = param_name.lower()
@@ -52,13 +54,23 @@ def get_param_config(module_type, param_name, param_idx):
         else:
             return {"type": "knob", "min": -80.0, "max": 12.0, "step": 0.1, "log": False, "unit": "dB"}
             
-    elif m_type == "Gain":
+    elif m_type == "MonoGain" or m_type == "Gain":
         if param_idx == 0:
             return {"type": "knob", "min": -80.0, "max": 12.0, "step": 0.1, "log": False, "unit": "dB"}
         elif param_idx == 1:
             return {"type": "mute"}
         elif param_idx == 2:
             return {"type": "invert"}
+            
+    elif m_type == "StereoGain":
+        if param_idx == 0:
+            return {"type": "knob", "min": -80.0, "max": 12.0, "step": 0.1, "log": False, "unit": "dB"}
+        elif param_idx == 1:
+            return {"type": "mute"}
+        elif param_idx == 2:
+            return {"type": "invert"}
+        elif param_idx == 3:
+            return {"type": "knob", "min": -1.0, "max": 1.0, "step": 0.02, "log": False, "unit": "Bal"}
             
     elif m_type == "FIR":
         if param_idx == 3:
@@ -185,7 +197,7 @@ class RadStudio:
     def __init__(self, root):
         self.root = root
         self.root.title("RadStudio Lite (Serial DSP Controller)")
-        self.root.geometry("800x850")
+        self.root.geometry("800x890")
         
         # Konfigurasi Font Tabel (Treeview)
         style = ttk.Style()
@@ -193,6 +205,9 @@ class RadStudio:
         style.configure("Treeview.Heading", font=("Arial", 10, "bold"))
         
         self.serial_port = None
+        self.telemetry_data = {}
+        self.serial_thread = None
+        self.serial_thread_running = False
         self.module_map = {}
         self.module_list_keys = []
         self.load_module_config()
@@ -312,7 +327,7 @@ class RadStudio:
         self.refresh_module_ui()
         self.btn_send.config(state="normal")
         self.btn_sync.config(state="normal")
-        self.btn_view_graph.config(state="normal")
+        self.btn_tune.config(state="normal")
         
         if self.serial_port and self.serial_port.is_open:
             parameter_values = session_data.get("parameter_values", {})
@@ -352,15 +367,13 @@ class RadStudio:
         self.btn_connect = tk.Button(frame_conn, text="Connect", command=self.toggle_connection)
         self.btn_connect.grid(row=0, column=4, padx=5)
         
-        # Frame DAG Visualization
-        frame_dag = tk.LabelFrame(self.root, text="DSP Routing Graph", padx=5, pady=5)
-        frame_dag.pack(fill="x", padx=10, pady=5)
-        self.btn_view_graph = tk.Button(frame_dag, text="👁️ View Routing Graph", command=self.show_routing_window, state="disabled", bg="#E1F0FF")
-        self.btn_view_graph.pack(fill="x", pady=5)
-        
         # Frame DSP Parameters
         frame_dsp = tk.LabelFrame(self.root, text="DSP Parameters", padx=10, pady=10)
         frame_dsp.pack(fill="x", padx=10, pady=5)
+        
+        # Configure columns to allow equal expansion for side-by-side buttons
+        frame_dsp.grid_columnconfigure(0, weight=1)
+        frame_dsp.grid_columnconfigure(1, weight=1)
         
         tk.Label(frame_dsp, text="Module Target:").grid(row=0, column=0, sticky="w", pady=5)
         
@@ -376,12 +389,12 @@ class RadStudio:
                 display_values.append(f"ID {k} - {m}")
         
         self.cb_module = ttk.Combobox(frame_dsp, values=display_values, width=35)
-        self.cb_module.grid(row=0, column=1, sticky="w")
+        self.cb_module.grid(row=0, column=1, sticky="w", columnspan=2)
         self.cb_module.bind("<<ComboboxSelected>>", self.on_module_changed)
         
         tk.Label(frame_dsp, text="Parameter:").grid(row=1, column=0, sticky="w", pady=5)
         self.cb_param = ttk.Combobox(frame_dsp, values=[], width=25)
-        self.cb_param.grid(row=1, column=1, sticky="w")
+        self.cb_param.grid(row=1, column=1, sticky="w", columnspan=2)
         
         if display_values:
             self.cb_module.current(0)
@@ -389,11 +402,14 @@ class RadStudio:
         
         tk.Label(frame_dsp, text="Value (Float):").grid(row=2, column=0, sticky="w", pady=5)
         self.ent_value = tk.Entry(frame_dsp, width=15)
-        self.ent_value.grid(row=2, column=1, sticky="w")
+        self.ent_value.grid(row=2, column=1, sticky="w", columnspan=2)
         self.ent_value.insert(0, "1000.0")
         
         self.btn_send = tk.Button(frame_dsp, text="SEND COMMAND", command=self.send_command, state="disabled", bg="lightblue")
-        self.btn_send.grid(row=3, column=0, columnspan=2, pady=15, sticky="ew")
+        self.btn_send.grid(row=3, column=0, pady=15, sticky="ew", padx=(0, 5))
+        
+        self.btn_tune = tk.Button(frame_dsp, text="TUNE MODULE", command=self.open_current_module_tune_popup, state="disabled", bg="#FFD8B3")
+        self.btn_tune.grid(row=3, column=1, pady=15, sticky="ew", padx=(5, 0))
         
         # --- PACK BOTTOM FRAMES FIRST ---
         # Frame Status
@@ -421,6 +437,19 @@ class RadStudio:
         self.pb_ram.grid(row=2, column=1, padx=10, pady=2)
         self.lbl_ram = tk.Label(frame_sys, text="0 KB / 0 KB")
         self.lbl_ram.grid(row=2, column=2, sticky="w")
+        
+        tk.Label(frame_sys, text="CPU Speed:").grid(row=3, column=0, sticky="w")
+        self.lbl_cpu = tk.Label(frame_sys, text="--- MHz", font=("Arial", 9, "bold"))
+        self.lbl_cpu.grid(row=3, column=1, columnspan=2, sticky="w", padx=10, pady=2)
+        
+        tk.Label(frame_sys, text="Chip Temp:").grid(row=4, column=0, sticky="w")
+        self.lbl_temp = tk.Label(frame_sys, text="--- °C", font=("Arial", 9, "bold"))
+        self.lbl_temp.grid(row=4, column=1, columnspan=2, sticky="w", padx=10, pady=2)
+
+        # Bluetooth Buffer (Tampil dinamis jika ter-inisialisasi)
+        self.lbl_bt_title = tk.Label(frame_sys, text="BT RingBuffer:")
+        self.pb_bt = ttk.Progressbar(frame_sys, orient="horizontal", length=200, mode="determinate")
+        self.lbl_bt = tk.Label(frame_sys, text="--- %")
 
         # --- PACK EXPANDING FRAME LAST ---
         # Frame Telemetry (Sync Table)
@@ -454,53 +483,93 @@ class RadStudio:
         
     def toggle_connection(self):
         if self.serial_port and self.serial_port.is_open:
+            self.serial_thread_running = False
+            if self.serial_thread and self.serial_thread.is_alive():
+                self.serial_thread.join(timeout=0.5)
             self.serial_port.close()
             self.btn_connect.config(text="Connect")
             self.btn_send.config(state="disabled")
             self.btn_sync.config(state="disabled")
-            self.btn_view_graph.config(state="disabled")
+            self.btn_tune.config(state="disabled")
             self.lbl_status.config(text="Status: Disconnected", fg="red")
             self.module_map = {}
             self.routing_edges = []
             self.schema_fetched = False
             self.refresh_module_ui()
-            if hasattr(self, 'graph_window') and self.graph_window.winfo_exists():
-                self.graph_window.destroy()
         else:
             try:
-                self.serial_port = serial.Serial(self.cb_port.get(), int(self.cb_baud.get()), timeout=1)
+                self.serial_port = serial.Serial(self.cb_port.get(), int(self.cb_baud.get()), timeout=0.1)
+                self.serial_thread_running = True
+                self.serial_thread = threading.Thread(target=self.serial_reader_loop, daemon=True)
+                self.serial_thread.start()
                 self.btn_connect.config(text="Disconnect")
                 self.lbl_status.config(text="Status: Connected. Fetching schema...", fg="orange")
                 self.root.after(500, self.fetch_schema)
             except Exception as e:
                 messagebox.showerror("Connection Error", str(e))
                 
+    def serial_reader_loop(self):
+        while self.serial_thread_running and self.serial_port and self.serial_port.is_open:
+            try:
+                if self.serial_port.in_waiting > 0:
+                    line = self.serial_port.readline()
+                    if not line:
+                        continue
+                    response = line.decode('ascii', errors='ignore').strip()
+                    if response.startswith("{") and response.endswith("}"):
+                        try:
+                            data = json.loads(response)
+                            if "sys" in data:
+                                self.telemetry_data["sys"] = data
+                            elif "ack" in data:
+                                m_id = data.get("id")
+                                p_idx = data.get("p")
+                                if m_id is not None and p_idx is not None:
+                                    key = f"{m_id}_{p_idx}"
+                                    self.telemetry_data[key] = data.get("v", 0.0)
+                            elif "routing" in data and "modules" in data:
+                                self.telemetry_data["schema"] = data
+                        except Exception as e:
+                            print(f"[SCHEMA DEBUG] JSON parse error: {e}. Raw response: {response}")
+                elif self.serial_port.in_waiting > 0:
+                    # If there's a line that doesn't start/end with brace but contains routing
+                    line = self.serial_port.readline()
+                    if line:
+                        resp = line.decode('ascii', errors='ignore').strip()
+                        if "routing" in resp:
+                            print(f"[SCHEMA DEBUG] Non-JSON line containing routing: {resp}")
+                else:
+                    time.sleep(0.01)
+            except Exception as e:
+                print(f"[SCHEMA DEBUG] Serial thread exception: {e}")
+                break
+                
     def fetch_schema(self):
         if not self.serial_port or not self.serial_port.is_open: return
+        self.lbl_status.config(text="Status: Connected. Fetching schema...", fg="orange")
+        self.telemetry_data.pop("schema", None)
         self.serial_port.write(b'{"id":254,"req":0}\n')
-        self.root.after(100, self.read_schema)
+        self.root.after(100, self.wait_for_schema, 0)
         
-    def read_schema(self):
+    def wait_for_schema(self, retry_count):
         if not self.serial_port or not self.serial_port.is_open: return
-        try:
-            self.serial_port.timeout = 0.5
-            response = self.serial_port.readline().decode('ascii').strip()
-            if response.startswith("{") and "modules" in response:
-                data = json.loads(response)
-                self.module_map = data.get("modules", {})
-                self.routing_edges = data.get("routing", [])
-                self.schema_fetched = True
-                
-                self.refresh_module_ui()
-                
-                self.btn_send.config(state="normal")
-                self.btn_sync.config(state="normal")
-                self.btn_view_graph.config(state="normal")
-                self.lbl_status.config(text="Status: Connected & Schema Loaded!", fg="green")
+        schema = self.telemetry_data.get("schema")
+        if schema:
+            self.module_map = schema.get("modules", {})
+            self.routing_edges = schema.get("routing", [])
+            self.schema_fetched = True
+            
+            self.refresh_module_ui()
+            
+            self.btn_send.config(state="normal")
+            self.btn_sync.config(state="normal")
+            self.btn_tune.config(state="normal")
+            self.lbl_status.config(text="Status: Connected & Schema Loaded!", fg="green")
+        else:
+            if retry_count < 20: # 2 seconds total timeout
+                self.root.after(100, self.wait_for_schema, retry_count + 1)
             else:
-                self.lbl_status.config(text="Status: Connected (No Schema found)", fg="blue")
-        except Exception as e:
-            self.lbl_status.config(text="Status: Connected (Failed to parse schema)", fg="red")
+                self.lbl_status.config(text="Status: Connected (Failed to parse schema)", fg="red")
 
     def refresh_module_ui(self):
         self.module_list_keys = list(self.module_map.keys())
@@ -521,236 +590,86 @@ class RadStudio:
             self.cb_param['values'] = []
             self.cb_param.set('')
 
-    def show_routing_window(self):
-        if hasattr(self, 'graph_window') and self.graph_window.winfo_exists():
-            self.graph_window.lift()
+    def open_current_module_tune_popup(self):
+        sel = self.cb_module.get()
+        if not sel: return
+        idx = self.cb_module.current()
+        if idx >= 0 and idx < len(self.module_list_keys):
+            target_id = self.module_list_keys[idx]
+            target_mod = self.module_map[target_id]
+            node_name = target_mod.get("name", f"Mod_{target_id}")
+            self.open_node_popup(target_id, node_name)
+            
+    def open_node_popup(self, target_id, node_name):
+        target_mod = self.module_map.get(target_id)
+        if not target_mod:
             return
             
-        self.graph_window = tk.Toplevel(self.root)
-        self.graph_window.title("DSP Routing Graph")
-        self.graph_window.geometry("800x400")
-        
-        # Add scrollbars
-        hbar = ttk.Scrollbar(self.graph_window, orient=tk.HORIZONTAL)
-        hbar.pack(side=tk.BOTTOM, fill=tk.X)
-        vbar = ttk.Scrollbar(self.graph_window, orient=tk.VERTICAL)
-        vbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.graph_canvas = tk.Canvas(self.graph_window, bg="#ffffff", xscrollcommand=hbar.set, yscrollcommand=vbar.set)
-        self.graph_canvas.pack(fill="both", expand=True)
-        
-        hbar.config(command=self.graph_canvas.xview)
-        vbar.config(command=self.graph_canvas.yview)
-        
-        # Bind resize event to redraw
-        self.graph_canvas.bind("<Configure>", lambda e: self.draw_dag())
-        
-        # Initial draw
-        self.root.after(100, self.draw_dag)
+        is_graphic_eq = "GRAPHICEQ" in str(target_mod.get("type", "")).upper()
 
-    def draw_dag(self):
-        if not hasattr(self, 'graph_canvas') or not self.graph_canvas.winfo_exists(): return
-        self.graph_canvas.delete("all")
-        if not self.routing_edges: return
-        
-        # 1. Topological Sort
-        nodes = set()
-        in_degree = {}
-        adj = {}
-        
-        for u, v in self.routing_edges:
-            nodes.add(u)
-            nodes.add(v)
-            adj.setdefault(u, []).append(v)
-            adj.setdefault(v, [])
-            in_degree.setdefault(u, 0)
-            in_degree[v] = in_degree.get(v, 0) + 1
-            
-        levels = {}
-        queue = [n for n in nodes if in_degree[n] == 0]
-        for q in queue: levels[q] = 0
-        
-        while queue:
-            curr = queue.pop(0)
-            for neighbor in adj[curr]:
-                in_degree[neighbor] -= 1
-                levels[neighbor] = max(levels.get(neighbor, 0), levels[curr] + 1)
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-                    
-        # 2. Assign coordinates
-        import tkinter.font as tkfont
-        fnt = tkfont.Font(family="Arial", size=9, weight="bold")
-        
-        # Dynamic box width depending on the text
-        node_w = {n: max(60, fnt.measure(n) + 20) for n in nodes}
-        box_h = 35
-        
-        max_level = max(levels.values()) if levels else 0
-        
-        level_nodes = {}
-        for n, lvl in levels.items():
-            level_nodes.setdefault(lvl, []).append(n)
-            
-        level_width = {}
-        for lvl in range(max_level + 1):
-            if lvl in level_nodes:
-                level_width[lvl] = max(node_w[n] for n in level_nodes[lvl])
-            else:
-                level_width[lvl] = 80
-                
-        # Total available width
-        width = self.graph_canvas.winfo_width()
-        if width <= 1: width = 800
-        
-        margin_x = 20
-        margin_y = 20
-        current_x = margin_x
-        current_row = 0
-        
-        level_row = {}
-        level_x = {}
-        row_levels = {}
-        row_levels[current_row] = []
-        
-        for lvl in range(max_level + 1):
-            if lvl not in level_nodes: continue
-            col_w = level_width[lvl]
-            # Wrap to next row if column exceeds window width
-            if current_x + col_w + margin_x > width and row_levels[current_row]:
-                current_row += 1
-                current_x = margin_x
-                row_levels[current_row] = []
-                
-            level_row[lvl] = current_row
-            level_x[lvl] = current_x + col_w / 2
-            row_levels[current_row].append(lvl)
-            current_x += col_w + 40  # 40px spacing between level columns
-            
-        row_heights = {}
-        for row_idx, lvls in row_levels.items():
-            max_nodes = max(len(level_nodes[lvl]) for lvl in lvls)
-            row_heights[row_idx] = max(150, max_nodes * 60 + 40)
-            
-        row_y_start = {}
-        current_y = margin_y
-        for row_idx in sorted(row_levels.keys()):
-            row_y_start[row_idx] = current_y
-            current_y += row_heights[row_idx]
-            
-        # Update canvas scroll region
-        max_needed_w = max(width, current_x + 40)
-        self.graph_canvas.config(scrollregion=(0, 0, max_needed_w, current_y + 40))
-        
-        coords = {}
-        for row_idx, lvls in row_levels.items():
-            y_start = row_y_start[row_idx]
-            row_h = row_heights[row_idx]
-            for lvl in lvls:
-                cx = level_x[lvl]
-                nlist = level_nodes[lvl]
-                total_nodes = len(nlist)
-                y_spacing = row_h / (total_nodes + 1)
-                for i, n in enumerate(nlist):
-                    cy = y_start + (i + 1) * y_spacing
-                    coords[n] = (cx, cy)
-                    
-        # 3. Draw Edges with vertical pin offsets and smooth Bezier S-curves
-        incoming_map = {}
-        outgoing_map = {}
-        for u, v in self.routing_edges:
-            incoming_map.setdefault(v, []).append(u)
-            outgoing_map.setdefault(u, []).append(v)
-            
-        for u, v in self.routing_edges:
-            x1, y1 = coords[u]
-            x2, y2 = coords[v]
-            
-            # Target offset on the left edge of destination node v (inputs)
-            u_list = sorted(incoming_map[v], key=lambda node: coords[node][1])
-            idx_t = u_list.index(u)
-            K_t = len(u_list)
-            offset_t = -10 + (idx_t * 20 / (K_t - 1)) if K_t > 1 else 0
-            
-            # Source offset on the right edge of source node u (outputs)
-            v_list = sorted(outgoing_map[u], key=lambda node: coords[node][1])
-            idx_s = v_list.index(v)
-            K_s = len(v_list)
-            offset_s = -10 + (idx_s * 20 / (K_s - 1)) if K_s > 1 else 0
-            
-            xs = x1 + node_w[u]/2
-            ys = y1 + offset_s
-            xt = x2 - node_w[v]/2
-            yt = y2 + offset_t
-            
-            # Dynamic path drawing depending on layout flow direction
-            if xt > xs + 40:
-                # Normal left-to-right Bezier line
-                x_mid = xs + (xt - xs) / 2
-                self.graph_canvas.create_line(xs, ys, x_mid, ys, x_mid, yt, xt, yt, arrow=tk.LAST, fill="#007ACC", width=2, smooth=True)
-            else:
-                # Wrap-around line path: exits right, goes down/up, enters left
-                y_mid = (ys + yt) / 2
-                self.graph_canvas.create_line(xs, ys, xs + 20, ys, xs + 20, y_mid, xt - 20, y_mid, xt - 20, yt, xt, yt, arrow=tk.LAST, fill="#007ACC", width=2, smooth=True)
-                
-        # 4. Draw Nodes
-        for n, (cx, cy) in coords.items():
-            w = node_w[n]
-            box = self.graph_canvas.create_rectangle(cx-w/2, cy-box_h/2, cx+w/2, cy+box_h/2, fill="#E1F0FF", outline="#007ACC", width=2, tags=("node", f"name_{n}"))
-            txt = self.graph_canvas.create_text(cx, cy, text=n, font=("Arial", 9, "bold"), fill="#333333", tags=("node", f"name_{n}"))
-            
-            # Bind Double Click Event to the box and text
-            self.graph_canvas.tag_bind(box, "<Double-Button-1>", lambda e, node_name=n: self.open_node_popup(node_name))
-            self.graph_canvas.tag_bind(txt, "<Double-Button-1>", lambda e, node_name=n: self.open_node_popup(node_name))
-            
-    def open_node_popup(self, node_name):
-        # Cari ID dari node_name di module_map
-        target_id = None
-        target_mod = None
-        for k, v in self.module_map.items():
-            if isinstance(v, dict) and v.get("name") == node_name:
-                target_id = k
-                target_mod = v
-                break
-                
-        if not target_id:
-            # It means it's not an effect, but an abstract node like I2S0_In or Split
-            return
-            
-        popup = tk.Toplevel(self.graph_window)
+        popup = tk.Toplevel(self.root)
         popup.title(f"Parameter: {node_name}")
-        popup.geometry("450x400")
+        popup.geometry("950x300" if is_graphic_eq else "450x400")
         popup.attributes("-topmost", True)
         popup.resizable(True, True)
         if "FIR" in str(target_mod.get("type", "")).upper():
             popup.geometry("1200x760")
             popup.minsize(1100, 760)
         
-        tk.Label(popup, text=f"{node_name} ({target_mod.get('type')})", font=("Arial", 12, "bold")).pack(pady=10)
+        tk.Label(popup, text=f"{node_name} ({target_mod.get('type')})", font=("Arial", 12, "bold")).pack(pady=5)
         
-        frame_params = tk.Frame(popup)
-        frame_params.pack(fill="both", expand=True, padx=10)
+        # Frame untuk kontrol global (seperti Bypass)
+        global_ctrl_frame = tk.Frame(popup)
+        global_ctrl_frame.pack(fill="x", padx=10, pady=2)
+        
+        # Buat container untuk parameter (scrollable canvas jika GraphicEQ)
+        container = tk.Frame(popup)
+        container.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        if is_graphic_eq:
+            canvas = tk.Canvas(container, highlightthickness=0)
+            h_scrollbar = ttk.Scrollbar(container, orient="horizontal", command=canvas.xview)
+            frame_params = tk.Frame(canvas)
+            frame_params.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+            canvas.create_window((0, 0), window=frame_params, anchor="nw")
+            canvas.configure(xscrollcommand=h_scrollbar.set)
+            
+            h_scrollbar.pack(side="bottom", fill="x")
+            canvas.pack(side="left", fill="both", expand=True)
+            
+            # Hubungkan mousewheel horizontal
+            def _on_mousewheel(event):
+                canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+            frame_params.bind("<MouseWheel>", _on_mousewheel)
+            canvas.bind("<MouseWheel>", _on_mousewheel)
+        else:
+            frame_params = tk.Frame(container)
+            frame_params.pack(fill="both", expand=True)
         
         # Sync Current Values
         current_vals = {}
         if self.serial_port and self.serial_port.is_open:
-            self.serial_port.timeout = 0.1
             for p_name in target_mod.get("params", []):
                 try:
                     real_id = int(p_name.split(":")[0].strip())
                 except:
                     continue
                 self.serial_port.write(f'{{"id":{target_id},"req":{real_id}}}\n'.encode('ascii'))
+                
+            # Wait 150ms for background reader thread to update telemetry_data
+            time.sleep(0.15)
+            
+            for p_name in target_mod.get("params", []):
                 try:
-                    for _ in range(5):
-                        resp = self.serial_port.readline().decode('ascii').strip()
-                        if resp.startswith("{") and "ack" in resp:
-                            data = json.loads(resp)
-                            if data.get("id") == int(target_id) and data.get("p") == real_id:
-                                current_vals[real_id] = data.get("v", 0.0)
-                                break
+                    real_id = int(p_name.split(":")[0].strip())
                 except:
-                    pass
+                    continue
+                key = f"{target_id}_{real_id}"
+                if key in self.telemetry_data:
+                    current_vals[real_id] = self.telemetry_data[key]
         
         entries = []
         ui_elements = {}
@@ -813,6 +732,69 @@ class RadStudio:
                     if param_idx not in ui_elements: ui_elements[param_idx] = {}
                     ui_elements[param_idx]["ent"] = ent
                     entries.append((param_idx, ent))
+        elif is_graphic_eq:
+            col_idx = 0
+            for param_name in target_mod.get("params", []):
+                real_p_idx = 0
+                try:
+                    if ":" in param_name:
+                        real_p_idx = int(param_name.split(":")[0].strip())
+                except: pass
+                
+                # Checkbox Bypass (100) diletakkan di global_ctrl_frame
+                if real_p_idx == 100:
+                    var_val = tk.IntVar(value=0)
+                    if real_p_idx in current_vals:
+                        var_val.set(int(current_vals[real_p_idx]))
+                    
+                    def checkbox_changed(p_idx=real_p_idx, var=var_val):
+                        send_live(p_idx, float(var.get()))
+                        
+                    btn = tk.Checkbutton(global_ctrl_frame, text="BYPASS EQUALIZER", variable=var_val, command=checkbox_changed, font=("Arial", 9, "bold"))
+                    btn.pack(side="left", padx=5, pady=2)
+                    ui_elements[real_p_idx] = {'var': var_val, 'btn': btn}
+                    
+                    mock_ent = tk.Entry(popup)
+                    mock_ent.insert(0, str(var_val.get()))
+                    entries.append((real_p_idx, mock_ent))
+                    continue
+                
+                # Modul EQ Bands diletakkan mendatar (auto kesamping)
+                clean_name = param_name.split(":")[-1].replace("(dB)", "").strip()
+                lbl = tk.Label(frame_params, text=clean_name, font=("Arial", 8, "bold"))
+                lbl.grid(row=0, column=col_idx, padx=8, pady=(5, 2))
+                ui_elements[real_p_idx] = {'label': lbl}
+                
+                config = get_param_config(target_mod.get("type", ""), param_name, real_p_idx)
+                min_v = config.get("min", -24.0)
+                max_v = config.get("max", 24.0)
+                step_v = config.get("step", 0.1)
+                
+                ent = tk.Entry(frame_params, width=6, justify="center")
+                ent.grid(row=2, column=col_idx, padx=8, pady=(2, 5))
+                
+                def knob_changed(val, e=ent, idx=real_p_idx, step=step_v):
+                    val = round(val / step) * step
+                    e.delete(0, tk.END)
+                    e.insert(0, f"{val:.1f}")
+                    send_live(idx, val)
+                    
+                knob = Knob(frame_params, min_val=min_v, max_val=max_v, log_scale=False, command=knob_changed, width=50, height=50)
+                knob.grid(row=1, column=col_idx, padx=8)
+                
+                if real_p_idx in current_vals:
+                    knob.set(current_vals[real_p_idx])
+                    ent.delete(0, tk.END)
+                    ent.insert(0, f"{current_vals[real_p_idx]:.1f}")
+                else:
+                    knob.set(0.0)
+                    ent.insert(0, "0.0")
+                    
+                ui_elements[real_p_idx]['ent'] = ent
+                ui_elements[real_p_idx]['knob'] = knob
+                entries.append((real_p_idx, ent))
+                
+                col_idx += 1
         else:
             for i, param_name in enumerate(target_mod.get("params", [])):
                 real_p_idx = i
@@ -874,7 +856,7 @@ class RadStudio:
                     mock_ent.insert(0, str(cb.current() if cb.current() >= 0 else 0))
                     entries.append((real_p_idx, mock_ent))
                     continue
-
+ 
                 if p_type == "meter":
                     # Canvas VU Meter Premium
                     meter_canvas = tk.Canvas(frame_params, width=220, height=22, bg="#111111", highlightthickness=0)
@@ -896,32 +878,30 @@ class RadStudio:
                         cmd = f'{{"id":{target_id},"req":0}}\n'
                         try:
                             self.serial_port.write(cmd.encode('ascii'))
-                            self.serial_port.timeout = 0.04 # Low timeout for responsiveness
-                            resp = self.serial_port.readline().decode('ascii', errors='ignore').strip()
-                            if resp.startswith("{") and "ack" in resp:
-                                data = json.loads(resp)
-                                if data.get("id") == int(target_id) and data.get("p") == 0:
-                                    val_db = data.get("v", -80.0)
+                            
+                            key = f"{target_id}_0"
+                            if key in self.telemetry_data:
+                                val_db = self.telemetry_data[key]
+                                
+                                # Update text label
+                                lbl_db.config(text=f"{val_db:.1f} dB", fg="#00FF00" if val_db < -12 else ("#FFAA00" if val_db < -3 else "#FF0000"))
+                                
+                                # Konversi -80 dB s.d +6 dB ke lebar bar 0 s.d 220px
+                                norm_val = (val_db + 80.0) / 86.0 # 0.0 s.d 1.0
+                                if norm_val < 0.0: norm_val = 0.0
+                                if norm_val > 1.0: norm_val = 1.0
+                                
+                                width = int(norm_val * 220)
+                                
+                                # Ubah warna bar dinamis berdasarkan tingkat kekerasan
+                                color = "#00FF00" # Hijau
+                                if val_db >= -12.0 and val_db < -3.0:
+                                    color = "#FFAA00" # Orange/Kuning
+                                elif val_db >= -3.0:
+                                    color = "#FF0000" # Merah (Peak)
                                     
-                                    # Update text label
-                                    lbl_db.config(text=f"{val_db:.1f} dB", fg="#00FF00" if val_db < -12 else ("#FFAA00" if val_db < -3 else "#FF0000"))
-                                    
-                                    # Konversi -80 dB s.d +6 dB ke lebar bar 0 s.d 220px
-                                    norm_val = (val_db + 80.0) / 86.0 # 0.0 s.d 1.0
-                                    if norm_val < 0.0: norm_val = 0.0
-                                    if norm_val > 1.0: norm_val = 1.0
-                                    
-                                    width = int(norm_val * 220)
-                                    
-                                    # Ubah warna bar dinamis berdasarkan tingkat kekerasan
-                                    color = "#00FF00" # Hijau
-                                    if val_db >= -12.0 and val_db < -3.0:
-                                        color = "#FFAA00" # Orange/Kuning
-                                    elif val_db >= -3.0:
-                                        color = "#FF0000" # Merah (Peak)
-                                        
-                                    meter_canvas.coords(meter_bar, 0, 0, width, 22)
-                                    meter_canvas.itemconfig(meter_bar, fill=color)
+                                meter_canvas.coords(meter_bar, 0, 0, width, 22)
+                                meter_canvas.itemconfig(meter_bar, fill=color)
                         except Exception:
                             pass
                         
@@ -940,7 +920,7 @@ class RadStudio:
                     mock_ent.insert(0, "-80.0")
                     entries.append((real_p_idx, mock_ent))
                     continue
-            
+             
                 # Numeric Knob Parameters
                 min_v = config.get("min", 0.0)
                 max_v = config.get("max", 100.0)
@@ -1630,35 +1610,65 @@ class RadStudio:
             try:
                 # Minta data dari ID 255 (System)
                 self.serial_port.write(b'{"id":255,"req":0}\n')
-                self.serial_port.timeout = 0.1
-                lines = self.serial_port.readlines()
-                for line in lines:
-                    response = line.decode('ascii', errors='ignore').strip()
-                    if response.startswith("{") and "sys" in response:
-                        data = json.loads(response)
-                        dsp_load0 = data.get("c0", 0.0)
-                        dsp_load1 = data.get("c1", 0.0)
-                        ram_f = data.get("ramF", 0)
-                        ram_t = data.get("ramT", 0)
-                        ram_used = ram_t - ram_f
-                        
+                data = self.telemetry_data.get("sys")
+                if data:
+                    dsp_load0 = data.get("c0", 0.0)
+                    dsp_load1 = data.get("c1", 0.0)
+                    ram_f = data.get("ramF", 0)
+                    ram_t = data.get("ramT", 0)
+                    ram_used = ram_t - ram_f
+                    
+                    if dsp_load0 < 0:
+                        self.pb_dsp0['value'] = 0
+                        self.lbl_dsp0.config(text="Not Used")
+                    else:
                         self.pb_dsp0['value'] = min(dsp_load0, 100.0)
                         self.lbl_dsp0.config(text=f"{dsp_load0:.1f} %")
-                        
+                    
+                    if dsp_load1 < 0:
+                        self.pb_dsp1['value'] = 0
+                        self.lbl_dsp1.config(text="Not Used")
+                    else:
                         self.pb_dsp1['value'] = min(dsp_load1, 100.0)
                         self.lbl_dsp1.config(text=f"{dsp_load1:.1f} %")
+                    
+                    if ram_t > 0:
+                        ram_percent = (ram_used / ram_t) * 100.0
+                        self.pb_ram['value'] = ram_percent
                         
-                        if ram_t > 0:
-                            ram_percent = (ram_used / ram_t) * 100.0
-                            self.pb_ram['value'] = ram_percent
-                            
-                            # Konversi ke format KB/MB yang mudah dibaca
-                            used_kb = ram_used / 1024.0
-                            free_kb = ram_f / 1024.0
-                            total_kb = ram_t / 1024.0
-                            
-                            text_ram = f"{ram_percent:.1f}% (Used: {used_kb:.1f} KB | Free: {free_kb:.1f} KB | Total: {total_kb:.1f} KB)"
-                            self.lbl_ram.config(text=text_ram)
+                        # Konversi ke format KB/MB yang mudah dibaca
+                        used_kb = ram_used / 1024.0
+                        free_kb = ram_f / 1024.0
+                        total_kb = ram_t / 1024.0
+                        
+                        text_ram = f"{ram_percent:.1f}% (Used: {used_kb:.1f} KB | Free: {free_kb:.1f} KB | Total: {total_kb:.1f} KB)"
+                        self.lbl_ram.config(text=text_ram)
+                        
+                    cpu_mhz = data.get("cpu", 0)
+                    temp_c = data.get("temp", 0.0)
+                    
+                    if cpu_mhz > 0:
+                        self.lbl_cpu.config(text=f"{cpu_mhz} MHz")
+                    else:
+                        self.lbl_cpu.config(text="--- MHz")
+                        
+                    if temp_c > 0.0:
+                        self.lbl_temp.config(text=f"{temp_c:.1f} °C")
+                    else:
+                        self.lbl_temp.config(text="--- °C")
+                        
+                    # Bluetooth Buffer
+                    bt_buf = data.get("btBuf")
+                    if bt_buf is not None:
+                        self.lbl_bt_title.grid(row=5, column=0, sticky="w")
+                        self.pb_bt.grid(row=5, column=1, padx=10, pady=2)
+                        self.lbl_bt.grid(row=5, column=2, sticky="w")
+                        self.pb_bt['value'] = min(bt_buf, 100.0)
+                        self.lbl_bt.config(text=f"{bt_buf:.1f} %")
+                    else:
+                        self.lbl_bt_title.grid_remove()
+                        self.pb_bt.grid_remove()
+                        self.lbl_bt.grid_remove()
             except Exception:
                 pass
                 

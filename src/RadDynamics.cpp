@@ -5,6 +5,7 @@
 namespace RadDSP {
 
     Dynamics::Dynamics() {
+        LUT::init();
         _type = 0.0f; // Compressor
         _threshold_db = -12.0f;
         _ratio = 4.0f;

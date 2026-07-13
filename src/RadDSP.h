@@ -14,6 +14,7 @@
 #include "RadBluetooth.h"
 #include "RadMatrix.h"
 #include "RadMeter.h"
+#include "RadGraphicEQ.h"
 
 namespace RadDSP {
     // Global sample rate used by all DSP algorithms

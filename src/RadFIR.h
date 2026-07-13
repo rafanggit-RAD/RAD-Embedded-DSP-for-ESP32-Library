@@ -27,6 +27,7 @@ public:
 
     void setParameter(uint8_t paramID, float value) override;
     float getParameter(uint8_t paramID) override;
+    const char* getType() override { return "FIR"; }
 
     /**
      * @brief Set or update the FIR coefficients dynamically (SafeLoad Double Buffered)

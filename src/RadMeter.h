@@ -11,24 +11,27 @@ public:
     Meter();
     
     /**
-     * @brief Memproses blok sampel audio dan melacak nilai Peak Level
+     * @brief Memproses blok sampel audio, melacak Peak Level, dan mengembalikan nilai puncak terkini
      * @param input Buffer audio masukan
      * @param length Panjang buffer sampel
+     * @param mode 0 untuk skala Linear, 1 untuk skala desibel (dBFS)
+     * @return Nilai puncak terkini sesuai mode pilihan
      */
-    void process(const float* input, int length);
+    float process(const float* input, int length, int mode = 1);
 
     /**
-     * @brief In-place process helper
+     * @brief Helper untuk pemrosesan in-place
      */
-    inline void process(float* buffer, int length) {
-        process((const float*)buffer, length);
+    inline float process(float* buffer, int length, int mode = 1) {
+        return process((const float*)buffer, length, mode);
     }
 
     void setParameter(uint8_t paramID, float value) override;
     float getParameter(uint8_t paramID) override;
+    const char* getType() override { return "Meter"; }
 
 private:
-    float _peakDb;      // Nilai puncak sinyal saat ini dalam dBFS (-80.0 s.d 0.0)
+    float _peakDb;      // Nilai puncak sinyal saat ini dalam dBFS (-80.0 s.d 6.0)
     float _decayFactor; // Waktu redam (decay) jarum meter agar pergerakannya mulus
     float _currentPeak; // Nilai puncak linear sebelum dikonversi ke dB
 };
